@@ -4,24 +4,28 @@ use chrono::Local;
 use futures::{
     stream::TryStreamExt,
     FutureExt,
+    StreamExt,
 };
 use leptos::{
     component,
-    create_memo,
     create_node_ref,
     create_signal,
-    ev::SubmitEvent,
+    ev::{
+        scroll,
+        SubmitEvent,
+    },
     event_target_value,
     html::{
+        Div,
         Input,
-        Main,
     },
+    spawn_local,
     spawn_local_with_current_owner,
     view,
+    with,
     Children,
     For,
     IntoView,
-    NodeRef,
     ReadSignal,
     Signal,
     SignalGet,
@@ -46,10 +50,12 @@ use leptos_use::storage::{
     JsonCodec,
 };
 use uuid::Uuid;
+use web_sys::ScrollLogicalPosition;
 
 use crate::state::{
     use_message,
     use_storage,
+    ChatTemplate,
     Conversation,
     ConversationId,
     HyperParameters,
@@ -112,9 +118,7 @@ pub fn NavLink<H: ToHref + 'static>(href: H, children: Children) -> impl IntoVie
 #[component]
 pub fn App() -> impl IntoView {
     provide_context();
-    let Context {
-        state, ..
-    } = expect_context();
+    let Context { state, .. } = expect_context();
 
     view! {
         <Router>
@@ -126,14 +130,16 @@ pub fn App() -> impl IntoView {
                     <hr />
                     <ul class="nav nav-pills flex-column mb-auto">
                         <For
-                            each=move || state.with(|state| state.conversations.values().cloned().collect::<Vec<_>>())
-                            key=|metadata| metadata.id
-                            children=move |metadata| {
-                                let id = metadata.id;
+                            each=move || state.with(|state| state.conversations.keys().cloned().collect::<Vec<_>>())
+                            key=|id| *id
+                            children=move |id| {
+                                let title = Signal::derive(move || {
+                                    with!(|state| state.conversations.get(&id).and_then(|c| c.title.clone()))
+                                });
                                 view! {
                                     <NavLink href=format!("/conversation/{id}")>
-                                        {
-                                            if let Some(title) = metadata.title {
+                                        {move || {
+                                            if let Some(title) = title.get() {
                                                 view!{{title}}.into_view()
                                             }
                                             else {
@@ -142,7 +148,7 @@ pub fn App() -> impl IntoView {
                                                     "Untitled"
                                                 }.into_view()
                                             }
-                                        }
+                                        }}
                                     </NavLink>
                                 }
                             }
@@ -179,12 +185,6 @@ pub fn App() -> impl IntoView {
         </Router>
     }
 }
-
-/*fn scroll_main_panel_to_bottom() {
-    let Context { main_panel, .. } = expect_context();
-    let main_panel = main_panel.get_untracked().unwrap();
-    main_panel.set_scroll_top(main_panel.scroll_height());
-}*/
 
 fn push_user_message(conversation_id: ConversationId, user_message: String) {
     let Context {
@@ -233,16 +233,13 @@ fn push_user_message(conversation_id: ConversationId, user_message: String) {
         })
         .unwrap();
 
-    // get model's chat template
-
     let mut model = api.text_generation(&model_id.0);
-    model.max_new_tokens = Some(2048);
+    model.max_new_tokens = Some(250); // we'll limit it to the documented max value for now lol
 
-    spawn_local_with_current_owner(
+    spawn_local(
         async move {
             set_loading.set(true);
 
-            log::debug!("prompt: {prompt}");
             let mut stream = model.generate(&prompt).await?;
 
             let message_id = MessageId::new();
@@ -257,7 +254,6 @@ fn push_user_message(conversation_id: ConversationId, user_message: String) {
             });
 
             while let Some(token) = stream.try_next().await? {
-                log::debug!("token: {token:?}");
                 if token.special {
                     continue;
                 }
@@ -289,8 +285,57 @@ fn push_user_message(conversation_id: ConversationId, user_message: String) {
             log::debug!("response stream finished");
             set_loading.set(false);
         }),
+    );
+}
+
+fn request_conversation_title(conversation_id: ConversationId, user_message: &str) {
+    let Context {
+        api, update_state, ..
+    } = expect_context();
+
+    let mut model = api.text_generation("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO");
+    model.max_new_tokens = Some(20);
+
+    let prompt = format!(
+        r#"<|im_start|>system
+Your job is to generate a short descriptive title of a chat conversation between an user and an AI assistant, given the first message from the user.
+Start the title with a fitting emoji. Please respond only with the title and nothing else.
+<|im_end|>
+<|im_start|>user
+Message: Write a short poem about AI.
+<|im_end|>
+<|im_start|>assistant
+✨ A Modern Muse
+<|im_end|>
+<|im_start|>user
+Message: {user_message}
+<|im_end|>
+<|im_start|>assistant
+"#
+    );
+
+    spawn_local(
+        async move {
+            let stream = model.generate(&prompt).await?.text();
+            let title = stream.try_collect::<String>().await?;
+            let mut lines = title.lines();
+            let title = lines.next().unwrap().to_owned();
+
+            log::debug!("generated title: '{title}'");
+
+            update_state.update(move |state| {
+                let conversation = state.conversations.get_mut(&conversation_id).unwrap();
+                conversation.title = Some(title);
+            });
+
+            Ok(())
+        }
+        .map(move |result: Result<(), Error>| {
+            if let Err(e) = result {
+                log::error!("{e}");
+            }
+        }),
     )
-    .expect("future failed");
 }
 
 #[component]
@@ -326,6 +371,7 @@ fn Home() -> impl IntoView {
             state.conversations.insert(conversation_id, conversation);
         });
 
+        request_conversation_title(conversation_id, &user_message);
         push_user_message(conversation_id, user_message);
 
         use_navigate()(
@@ -334,9 +380,21 @@ fn Home() -> impl IntoView {
         );
     };
 
+    let show_system_prompt_input_group = Signal::derive(move || {
+        with!(|state, current_model| {
+            state
+                .models
+                .get(current_model)
+                .unwrap()
+                .chat_template
+                .supports_system_prompt()
+        })
+    });
+
     let model_selected = move |e| {
         let model_id = ModelId(event_target_value(&e));
         log::debug!("model selected: {model_id}");
+
         update_state.update(move |state| {
             state.current_model = model_id;
         });
@@ -349,7 +407,7 @@ fn Home() -> impl IntoView {
             </div>
             <form on:submit=on_submit class="p-2">
                 <div class="collapse p-4" id="startChatAdvancedContainer">
-                    <div class="input-group mb-3">
+                    <div class="input-group mb-3" class:visually-hidden=move || !show_system_prompt_input_group.get()>
                         <span class="input-group-text">"System Prompt"</span>
                         <textarea class="form-control" id="systemPromptTextarea" rows="3"></textarea>
                     </div>
@@ -405,21 +463,36 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
             .clone()
     });
 
+    let scroll_target = create_node_ref::<Div>();
+
+    let scroll_to_bottom = move || {
+        log::debug!("scroll down");
+
+        let scroll_target = scroll_target.get_untracked().unwrap();
+
+        let mut scroll_options = web_sys::ScrollIntoViewOptions::new();
+        scroll_options.behavior(web_sys::ScrollBehavior::Smooth);
+        scroll_options.block(ScrollLogicalPosition::End);
+
+        scroll_target.scroll_into_view_with_scroll_into_view_options(&scroll_options);
+
+        //scroll_options.top(messages_box.scroll_height() as _);
+        //messages_box.scroll_to_with_scroll_to_options(&scroll_options);
+    };
+
     let on_submit = move |event: SubmitEvent| {
         event.prevent_default();
+
         let user_message_input = user_message_input.get().unwrap();
         let user_message = user_message_input.value();
         user_message_input.set_value("");
         log::debug!("user_message: {user_message}");
 
+        scroll_to_bottom();
+
         let id = conversation.with_untracked(|conversation| conversation.id);
         push_user_message(id, user_message);
     };
-
-    let messages = create_memo(|_| {
-        // todo memo the actual messages in order
-        // then render for loop over that. i think that's the bug!
-    });
 
     view! {
         /*<div class="d-flex flex-row">
@@ -433,7 +506,6 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                 each=move || conversation.with(|conversation| conversation.messages.clone())
                 key=|message_id| *message_id
                 children=move |message_id| {
-                    log::debug!("render message: {message_id}");
                     let (message, _, _) = use_message(message_id);
 
                     view! {
@@ -450,7 +522,7 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                                         class:ms-auto=is_assistant
 
                                     >
-                                        <p inner_html=html></p>
+                                        <p inner_html=html class="markdown"></p>
                                     </div>
                                 }
                             })
@@ -458,8 +530,9 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                     }
                 }
             />
+            <div class="d-flex w-100" style="min-height: 10em;" node_ref=scroll_target></div>
         </div>
-        <form on:submit=on_submit class="px-4 pb-4 pt-2 shadow">
+        <form on:submit=on_submit class="px-4 py-2 shadow">
             <div class="collapse p-4" id="sendMessageAdvancedContainer">
                 <div class="input-group">
                     <span class="input-group-text">"Role"</span>
@@ -520,9 +593,11 @@ fn Settings() -> impl IntoView {
     };
 
     view! {
-        <form on:submit=|e| e.prevent_default()>
-            <button type="button" class="btn btn-danger" on:click=reset>"Reset"</button>
-        </form>
+        <div class="d-flex flex-column h-100 w-100 p-4">
+            <form on:submit=|e| e.prevent_default()>
+                <button type="button" class="btn btn-danger" on:click=reset>"Reset"</button>
+            </form>
+        </div>
     }
 }
 

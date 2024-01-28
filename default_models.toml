@@ -1,0 +1,11 @@
+[[model]]
+model_id = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
+chat_template = "ChatML"
+
+[[model]]
+model_id = "mistralai/Mistral-7B-Instruct-v0.2"
+chat_template = "Instruct"
+
+[[model]]
+model_id = "mistralai/Mistral-7B-v0.1"
+chat_template = "None"

@@ -2,7 +2,6 @@ use std::{
     borrow::Cow,
     collections::BTreeMap,
     fmt::Write,
-    sync::Arc,
 };
 
 use chrono::{
@@ -10,8 +9,6 @@ use chrono::{
     Local,
 };
 use leptos::{
-    create_signal,
-    ReadSignal,
     Signal,
     WriteSignal,
 };
@@ -59,7 +56,7 @@ pub fn use_message(
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct State {
-    #[serde(default="current_state_version")]
+    #[serde(default = "current_state_version")]
     pub version: u32,
     pub models: BTreeMap<ModelId, Model>,
     pub conversations: BTreeMap<ConversationId, Conversation>,
@@ -70,6 +67,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         let mut models = BTreeMap::new();
+
         let mut add_model = |model_id: &'static str, chat_template| {
             let model_id = ModelId(model_id.to_owned());
             models.insert(
@@ -85,6 +83,16 @@ impl Default for State {
             ChatTemplate::ChatML,
         );
         add_model("mistralai/Mistral-7B-Instruct-v0.2", ChatTemplate::Instruct);
+
+        #[derive(Debug, Deserialize)]
+        struct DefaultModels {
+            model: Vec<Model>,
+        }
+        let default_models: DefaultModels =
+            toml::from_str(include_str!("../default_models.toml")).unwrap();
+        for model in default_models.model {
+            models.insert(model.model_id.clone(), model);
+        }
 
         let current_model = models
             .first_key_value()
@@ -189,7 +197,6 @@ impl ChatTemplate {
                 }
                 write!(&mut prompt, "<|im_start|>assistant\n").unwrap()
             }
-            _ => todo!(),
         }
         prompt
     }
