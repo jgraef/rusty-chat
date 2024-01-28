@@ -4,28 +4,28 @@ use chrono::Local;
 use futures::{
     stream::TryStreamExt,
     FutureExt,
-    StreamExt,
 };
 use leptos::{
     component,
+    create_effect,
+    create_memo,
     create_node_ref,
+    create_rw_signal,
     create_signal,
-    ev::{
-        scroll,
-        SubmitEvent,
-    },
+    ev::SubmitEvent,
     event_target_value,
     html::{
         Div,
         Input,
     },
     spawn_local,
-    spawn_local_with_current_owner,
+    update,
     view,
     with,
     Children,
     For,
     IntoView,
+    NodeRef,
     ReadSignal,
     Signal,
     SignalGet,
@@ -55,7 +55,6 @@ use web_sys::ScrollLogicalPosition;
 use crate::state::{
     use_message,
     use_storage,
-    ChatTemplate,
     Conversation,
     ConversationId,
     HyperParameters,
@@ -120,22 +119,40 @@ pub fn App() -> impl IntoView {
     provide_context();
     let Context { state, .. } = expect_context();
 
+    let conversations = create_memo(move |_| {
+        with!(|state| {
+            let mut conversations = state
+                .conversations
+                .iter()
+                .map(|(id, conversation)| (*id, conversation.timestamp_last_interaction))
+                .collect::<Vec<_>>();
+            conversations.sort_by_cached_key(|(_, ts)| *ts);
+            conversations.reverse();
+            conversations
+        })
+    });
+
     view! {
         <Router>
             <div class="d-flex flex-row" style="height: 100vh; width: 100%">
                 <nav class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark shadow-lg" style="width: 280px;">
-                    <A class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
-                        <span class="fs-4">"🦀 RustyChat"</span>
-                    </A>
+                    <div class="d-flex flex-row">
+                        <A class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
+                            <span class="fs-4">"🦀 RustyChat"</span>
+                        </A>
+                        <small class="d-flex flex-row px-2 mt-auto">
+                            <a href="https://github.com/jgraef/rusty-chat" target="_blank" style="color: white;">
+                                <BootstrapIcon icon="github" />
+                            </a>
+                        </small>
+                    </div>
                     <hr />
                     <ul class="nav nav-pills flex-column mb-auto">
                         <For
-                            each=move || state.with(|state| state.conversations.keys().cloned().collect::<Vec<_>>())
-                            key=|id| *id
-                            children=move |id| {
-                                let title = Signal::derive(move || {
-                                    with!(|state| state.conversations.get(&id).and_then(|c| c.title.clone()))
-                                });
+                            each=conversations
+                            key=|(id, _)| *id
+                            children=move |(id, _)| {
+                                let title = Signal::derive(move || with!(|state| state.conversations.get(&id).unwrap().title.clone()));
                                 view! {
                                     <NavLink href=format!("/conversation/{id}")>
                                         {move || {
@@ -234,7 +251,7 @@ fn push_user_message(conversation_id: ConversationId, user_message: String) {
         .unwrap();
 
     let mut model = api.text_generation(&model_id.0);
-    model.max_new_tokens = Some(250); // we'll limit it to the documented max value for now lol
+    model.max_new_tokens = Some(2048);
 
     spawn_local(
         async move {
@@ -351,7 +368,9 @@ fn Home() -> impl IntoView {
 
     let on_submit = move |event: SubmitEvent| {
         event.prevent_default();
-        let user_message = user_message_input.get().unwrap().value();
+        let user_message_input = user_message_input.get().unwrap();
+        let user_message = user_message_input.value();
+        user_message_input.set_value("");
 
         let now = Local::now();
 
@@ -435,7 +454,7 @@ fn Home() -> impl IntoView {
                     </select>
                 </div>
                 <div class="input-group input-group-lg mb-3">
-                    <input type="text" class="form-control" placeholder="Ask anything" node_ref=user_message_input value="Write a short poem about AI." />
+                    <input type="text" class="form-control" placeholder="Ask anything" node_ref=user_message_input />
                     <button class="btn btn-outline-secondary" type="submit"><BootstrapIcon icon="send" /></button>
                     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#startChatAdvancedContainer"><BootstrapIcon icon="three-dots" /></button>
                 </div>
@@ -447,7 +466,10 @@ fn Home() -> impl IntoView {
 #[component]
 fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
     let Context {
-        state, is_loading, ..
+        state,
+        update_state,
+        is_loading,
+        ..
     } = expect_context();
 
     let user_message_input = create_node_ref::<Input>();
@@ -463,22 +485,28 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
             .clone()
     });
 
-    let scroll_target = create_node_ref::<Div>();
-
-    let scroll_to_bottom = move || {
-        log::debug!("scroll down");
-
-        let scroll_target = scroll_target.get_untracked().unwrap();
+    pub fn scroll_to(target: NodeRef<Div>, smooth: bool) {
+        log::debug!("scroll to bottom");
+        let scroll_target = target.get_untracked().unwrap();
 
         let mut scroll_options = web_sys::ScrollIntoViewOptions::new();
-        scroll_options.behavior(web_sys::ScrollBehavior::Smooth);
         scroll_options.block(ScrollLogicalPosition::End);
+        scroll_options.behavior(if smooth {
+            web_sys::ScrollBehavior::Smooth
+        }
+        else {
+            web_sys::ScrollBehavior::Instant
+        });
 
         scroll_target.scroll_into_view_with_scroll_into_view_options(&scroll_options);
+    }
 
-        //scroll_options.top(messages_box.scroll_height() as _);
-        //messages_box.scroll_to_with_scroll_to_options(&scroll_options);
-    };
+    let scroll_target = create_node_ref::<Div>();
+
+    create_effect(move |_| {
+        conversation.with(|_| ());
+        scroll_to(scroll_target, false);
+    });
 
     let on_submit = move |event: SubmitEvent| {
         event.prevent_default();
@@ -488,19 +516,61 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
         user_message_input.set_value("");
         log::debug!("user_message: {user_message}");
 
-        scroll_to_bottom();
+        scroll_to(scroll_target, true);
 
         let id = conversation.with_untracked(|conversation| conversation.id);
         push_user_message(id, user_message);
     };
 
+    let confirm_delete = create_rw_signal(false);
+
+    let delete_button_clicked = move |_| {
+        if confirm_delete.get() {
+            log::debug!("delete chat: {}", id.get_untracked());
+
+            update!(|update_state| {
+                update_state.conversations.remove(&id.get_untracked());
+            });
+
+            use_navigate()("/", Default::default());
+        }
+        else {
+            confirm_delete.set(true);
+        }
+    };
+
     view! {
-        /*<div class="d-flex flex-row">
-            <h6>
-                {move || metadata.with(|metadata| metadata.title.clone())}
-                <span class="badge rounded-pill bg-dark">{move || metadata.with(|metadata| metadata.model_id.to_string())}</span>
+        <div class="d-flex flex-row px-4 pt-2 shadow-sm w-100">
+            <h4>
+                {move || with!(|conversation| conversation.title.clone())}
+                //<span class="badge rounded-pill bg-dark">{move || metadata.with(|metadata| metadata.model_id.to_string())}</span>
+            </h4>
+            <h6 class="mt-auto ms-4">
+                <span class="badge bg-secondary">
+                    {move || {
+                        let model_id = with!(|conversation| conversation.model_id.to_string());
+                        view! {
+                            <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id}</a>
+                        }
+                    }}
+                    <span class="ms-1">
+                        <BootstrapIcon icon="link-45deg" />
+                    </span>
+                </span>
             </h6>
-        </div>*/
+            <div class="d-flex flex-row ms-auto pb-2">
+                <button
+                    type="button"
+                    class="btn btn-sm"
+                    style="height: 100%;"
+                    class:btn-outline-danger=move || !confirm_delete.get()
+                    class:btn-danger=confirm_delete
+                    on:click=delete_button_clicked
+                >
+                    <BootstrapIcon icon="trash-fill" />
+                </button>
+            </div>
+        </div>
         <div class="d-flex flex-column overflow-scroll mb-auto p-4">
             <For
                 each=move || conversation.with(|conversation| conversation.messages.clone())
@@ -530,7 +600,8 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                     }
                 }
             />
-            <div class="d-flex w-100" style="min-height: 10em;" node_ref=scroll_target></div>
+            <div class="d-flex w-100 h-0" node_ref=scroll_target></div>
+            <div class="d-flex w-100" style="min-height: 10em;"></div>
         </div>
         <form on:submit=on_submit class="px-4 py-2 shadow">
             <div class="collapse p-4" id="sendMessageAdvancedContainer">
