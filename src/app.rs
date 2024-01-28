@@ -588,9 +588,8 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
 
                                 view!{
                                     <div
-                                        class="rounded rounded-3 bg-gradient bg-light w-75 my-2 p-2 shadow-sm"
+                                        class="rounded rounded-3 bg-gradient bg-light w-75 mw-75 my-2 p-2 shadow-sm"
                                         class:ms-auto=is_assistant
-
                                     >
                                         <p inner_html=html class="markdown"></p>
                                     </div>
