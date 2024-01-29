@@ -6,7 +6,12 @@
     min-height: 100vh;
 }
 
-main {
+.sidebar {
+    width: 280px;
+    background: var(--bs-gray-800);
+}
+
+.main {
     display: flex;
     flex-wrap: nowrap;
     flex-grow: 1;
@@ -14,10 +19,32 @@ main {
     overflow-y: hidden;
 }
 
+[data-bs-theme=light] .message-background {
+    background-color: var(--bs-gray-100);
+    background-image: var(--bs-gradient);
+}
+
+[data-bs-theme=dark] .message-background {
+    background-color: var(--bs-gray-800);
+    background-image: var(--bs-gradient);
+}
+
 .markdown pre {
     border-radius: 4px;
-    background-color: #ced4da;
-    background-image: var(--bs-gradient);
     padding: 0.5em;
     width: 75%;
+    overflow-x: scroll;
+}
+
+[data-bs-theme=light] .markdown pre {
+    background-color: var(--bs-gray-200);
+}
+
+[data-bs-theme=dark] .markdown pre {
+    background-color: var(--bs-gray-700);
+}
+
+.markdown blockquote {
+    border-left: solid 0.2em var(--bs-gray-500);
+    padding-left: 0.5em;
 }

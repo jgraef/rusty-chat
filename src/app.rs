@@ -23,9 +23,11 @@ use leptos::{
     view,
     with,
     Children,
+    DynAttrs,
     For,
     IntoView,
     NodeRef,
+    Oco,
     ReadSignal,
     Signal,
     SignalGet,
@@ -36,6 +38,10 @@ use leptos::{
     SignalWithUntracked,
     WriteSignal,
 };
+use leptos_meta::{
+    provide_meta_context,
+    Html,
+};
 use leptos_router::{
     use_navigate,
     use_params_map,
@@ -45,9 +51,14 @@ use leptos_router::{
     ToHref,
     A,
 };
-use leptos_use::storage::{
-    use_local_storage,
-    JsonCodec,
+use leptos_use::{
+    storage::{
+        use_local_storage,
+        JsonCodec,
+    },
+    use_color_mode,
+    ColorMode,
+    UseColorModeReturn,
 };
 use uuid::Uuid;
 use web_sys::ScrollLogicalPosition;
@@ -99,7 +110,7 @@ fn expect_context() -> Context {
 }
 
 #[component]
-pub fn BootstrapIcon(#[prop(into)] icon: String) -> impl IntoView {
+pub fn BootstrapIcon(#[prop(into)] icon: Oco<'static, str>) -> impl IntoView {
     view! { <i class={format!("bi bi-{icon}")}></i> }
 }
 
@@ -116,6 +127,8 @@ pub fn NavLink<H: ToHref + 'static>(href: H, children: Children) -> impl IntoVie
 
 #[component]
 pub fn App() -> impl IntoView {
+    provide_meta_context();
+
     provide_context();
     let Context { state, .. } = expect_context();
 
@@ -132,16 +145,50 @@ pub fn App() -> impl IntoView {
         })
     });
 
+    let (bs_theme, toggle_theme, theme_icon) = {
+        let UseColorModeReturn { mode, set_mode, .. } = use_color_mode();
+        let bs_theme = Signal::derive(move || {
+            match mode.get() {
+                ColorMode::Dark => "dark",
+                _ => "light",
+            }
+        });
+        let toggle_theme = move || {
+            let current = mode.get();
+            let new = match current {
+                ColorMode::Dark => ColorMode::Light,
+                _ => ColorMode::Dark,
+            };
+            set_mode.set(new);
+        };
+        let theme_icon = Signal::derive(move || {
+            match mode.get() {
+                ColorMode::Dark => "moon-fill",
+                _ => "sun-fill",
+            }
+        });
+        (bs_theme, toggle_theme, theme_icon)
+    };
+
     view! {
+        <Html
+            attr:data-bs-theme=bs_theme
+        />
         <Router>
             <div class="d-flex flex-row" style="height: 100vh; width: 100%">
-                <nav class="d-flex flex-column flex-shrink-0 p-3 text-white bg-dark shadow-lg" style="width: 280px;">
+                <nav class="d-flex flex-column flex-shrink-0 p-3 text-white shadow-lg sidebar">
                     <div class="d-flex flex-row">
                         <A class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
                             <span class="fs-4">"🦀 RustyChat"</span>
                         </A>
-                        <small class="d-flex flex-row px-2 mt-auto">
-                            <a href="https://github.com/jgraef/rusty-chat" target="_blank" style="color: white;">
+                        <small class="d-flex flex-row">
+                            <button type="button" class="btn py-0 px-1 m-auto" style="color: white;" on:click=move |_| toggle_theme()>
+                                {move || {
+                                    let theme_icon = theme_icon.get();
+                                    view!{<BootstrapIcon icon=theme_icon />}
+                                }}
+                            </button>
+                            <a href="https://github.com/jgraef/rusty-chat" target="_blank" class="py-0 px-1 m-auto" style="color: white;">
                                 <BootstrapIcon icon="github" />
                             </a>
                         </small>
@@ -155,17 +202,19 @@ pub fn App() -> impl IntoView {
                                 let title = Signal::derive(move || with!(|state| state.conversations.get(&id).unwrap().title.clone()));
                                 view! {
                                     <NavLink href=format!("/conversation/{id}")>
-                                        {move || {
-                                            if let Some(title) = title.get() {
-                                                view!{{title}}.into_view()
-                                            }
-                                            else {
-                                                view!{
-                                                    <span class="me-2"><BootstrapIcon icon="question-lg" /></span>
-                                                    "Untitled"
-                                                }.into_view()
-                                            }
-                                        }}
+                                        <div class="text-nowrap text-truncate" style="width: 200px">
+                                            {move || {
+                                                if let Some(title) = title.get() {
+                                                    view!{{title}}.into_view()
+                                                }
+                                                else {
+                                                    view!{
+                                                        <span class="me-2"><BootstrapIcon icon="question-lg" /></span>
+                                                        "Untitled"
+                                                    }.into_view()
+                                                }
+                                            }}
+                                        </div>
                                     </NavLink>
                                 }
                             }
@@ -179,7 +228,7 @@ pub fn App() -> impl IntoView {
                         </NavLink>
                     </ul>
                 </nav>
-                <main class="w-100 p-0">
+                <main class="w-100 p-0 main">
                     <div class="d-flex flex-column flex-grow-1 h-100" style="max-height: 100vh">
                         <Routes>
                             <Route path="/" view=Home />
@@ -571,7 +620,7 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                 </button>
             </div>
         </div>
-        <div class="d-flex flex-column overflow-scroll mb-auto p-4">
+        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100">
             <For
                 each=move || conversation.with(|conversation| conversation.messages.clone())
                 key=|message_id| *message_id
@@ -588,10 +637,10 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
 
                                 view!{
                                     <div
-                                        class="rounded rounded-3 bg-gradient bg-light w-75 mw-75 my-2 p-2 shadow-sm"
+                                        class="rounded rounded-3 w-75 mw-75 my-2 p-2 shadow-sm message-background markdown"
                                         class:ms-auto=is_assistant
+                                        inner_html=html
                                     >
-                                        <p inner_html=html class="markdown"></p>
                                     </div>
                                 }
                             })
