@@ -1,4 +1,8 @@
-use std::{fmt::Display, str::FromStr, sync::Arc};
+use std::{
+    fmt::Display,
+    str::FromStr,
+    sync::Arc,
+};
 
 use chrono::Local;
 use futures::{
@@ -6,11 +10,40 @@ use futures::{
     FutureExt,
 };
 use leptos::{
-    component, create_effect, create_memo, create_node_ref, create_rw_signal, ev::SubmitEvent, event_target_value, html::{
+    component,
+    create_effect,
+    create_memo,
+    create_node_ref,
+    create_rw_signal,
+    ev::SubmitEvent,
+    event_target_value,
+    html::{
         Div,
         Input,
         Textarea,
-    }, spawn_local, update, view, with, Callable, Callback, Children, DynAttrs, For, IntoView, NodeRef, Oco, RwSignal, Signal, SignalGet, SignalGetUntracked, SignalSet, SignalUpdate, SignalWith, SignalWithUntracked, WriteSignal
+    },
+    spawn_local,
+    update,
+    view,
+    with,
+    Callable,
+    Callback,
+    Children,
+    DynAttrs,
+    For,
+    IntoView,
+    MaybeSignal,
+    NodeRef,
+    Oco,
+    RwSignal,
+    Signal,
+    SignalGet,
+    SignalGetUntracked,
+    SignalSet,
+    SignalUpdate,
+    SignalWith,
+    SignalWithUntracked,
+    WriteSignal,
 };
 use leptos_meta::{
     provide_meta_context,
@@ -32,11 +65,31 @@ use leptos_use::{
 };
 use uuid::Uuid;
 use wasm_bindgen::JsCast;
-use web_sys::{ScrollLogicalPosition, Event};
+use web_sys::{
+    Event,
+    ScrollLogicalPosition,
+};
 
 use crate::{
     state::{
-        clear_storage, delete_storage, use_conversation, use_conversations, use_home, use_message, use_settings, use_version, AppVersion, Conversation, ConversationId, ConversationParameters, Message, MessageId, ModelId, Role, StorageKey, StorageSignals
+        clear_storage,
+        delete_storage,
+        use_conversation,
+        use_conversations,
+        use_home,
+        use_message,
+        use_settings,
+        use_version,
+        AppVersion,
+        Conversation,
+        ConversationId,
+        ConversationParameters,
+        Message,
+        MessageId,
+        ModelId,
+        Role,
+        StorageKey,
+        StorageSignals,
     },
     utils::{
         get_input_value,
@@ -63,7 +116,7 @@ fn provide_context() {
     log::info!("stored version: {}", stored_version);
     log::info!("current version: {}", current_version);
     //version.write.set(current_version);
-    
+
     leptos::provide_context(Context {
         api: Arc::new(hf_textgen::Api::default()),
         is_loading: create_rw_signal(false),
@@ -74,10 +127,7 @@ fn expect_context() -> Context {
     leptos::expect_context::<Context>()
 }
 
-fn push_user_message(
-    conversation_id: ConversationId,
-    user_message: String,
-) {
+fn push_user_message(conversation_id: ConversationId, user_message: String) {
     let Context {
         api, is_loading, ..
     } = expect_context();
@@ -106,7 +156,10 @@ fn push_user_message(
 
         update_conversation
             .try_update(move |conversation| {
-                let model_id = conversation.model_id.clone().expect("conversation has no model_id set");
+                let model_id = conversation
+                    .model_id
+                    .clone()
+                    .expect("conversation has no model_id set");
 
                 conversation.messages.push(message_id);
                 conversation.timestamp_last_interaction = now;
@@ -121,11 +174,7 @@ fn push_user_message(
                     .collect::<Vec<_>>();
 
                 let chat_template = settings.with_untracked(|settings| {
-                    settings
-                        .models
-                        .get(&model_id)
-                        .unwrap()
-                        .chat_template
+                    settings.models.get(&model_id).unwrap().chat_template
                 });
 
                 let prompt = chat_template.generate_prompt(
@@ -135,10 +184,21 @@ fn push_user_message(
                         .as_ref()
                         .map(|s| s.as_str()),
                     &messages,
-                    conversation.conversation_parameters.start_response_with.as_ref().map(|s| s.as_str()),
+                    conversation
+                        .conversation_parameters
+                        .start_response_with
+                        .as_ref()
+                        .map(|s| s.as_str()),
                 );
 
-                (model_id, prompt, conversation.conversation_parameters.start_response_with.clone())
+                (
+                    model_id,
+                    prompt,
+                    conversation
+                        .conversation_parameters
+                        .start_response_with
+                        .clone(),
+                )
             })
             .unwrap()
     };
@@ -289,11 +349,13 @@ pub fn App() -> impl IntoView {
                     let StorageSignals {
                         read: conversation, ..
                     } = use_conversation(id);
-                    with!(|conversation| (
-                        id,
-                        conversation.title.clone(),
-                        conversation.timestamp_last_interaction,
-                    ))
+                    with!(|conversation| {
+                        (
+                            id,
+                            conversation.title.clone(),
+                            conversation.timestamp_last_interaction,
+                        )
+                    })
                 })
                 .collect::<Vec<_>>();
             conversations.sort_by_cached_key(|(_, _, ts)| *ts);
@@ -421,14 +483,10 @@ fn Home() -> impl IntoView {
     } = use_home();
     let current_model = Signal::derive(move || {
         with!(|home| {
-            home
-                .selected_model
-                .clone()
-                .unwrap_or_else(move || {
-                    settings.with_untracked(|settings| {
-                        settings.models.first_key_value().unwrap().0.clone()
-                    })
-                })
+            home.selected_model.clone().unwrap_or_else(move || {
+                settings
+                    .with_untracked(|settings| settings.models.first_key_value().unwrap().0.clone())
+            })
         })
     });
 
@@ -460,10 +518,15 @@ fn Home() -> impl IntoView {
     let on_submit = move |event: SubmitEvent| {
         event.prevent_default();
 
-        let Some((user_message, conversation_parameters)) = update_home.try_update(|home| (
-            std::mem::replace(&mut home.user_message, Default::default()),
-            home.conversation_parameters.clone(),
-        )) else { return; };
+        let Some((user_message, conversation_parameters)) = update_home.try_update(|home| {
+            (
+                std::mem::replace(&mut home.user_message, Default::default()),
+                home.conversation_parameters.clone(),
+            )
+        })
+        else {
+            return;
+        };
 
         let now = Local::now();
 
@@ -499,14 +562,14 @@ fn Home() -> impl IntoView {
     };
 
     view! {
-        <div class="d-flex flex-column h-100 w-100 p-4">
+        <div class="d-flex flex-column h-100 w-100">
             <div class="mb-auto">
                 // TODO: say hello to the user
             </div>
-            <form on:submit=on_submit class="p-2 needs-validation" novalidate>
-                <div class="collapse p-4" id="startChatAdvancedContainer">
+            <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
+                <div class="collapse pb-2" id="startChatAdvancedContainer">
                     <ConversationParametersInputGroup
-                        value=Signal::derive(move || home.with_untracked(|home| home.conversation_parameters.clone()))
+                        value=home.with_untracked(|home| home.conversation_parameters.clone())
                         on_system_prompt_input=move |value| update_home.update(move |home| home.conversation_parameters.system_prompt = value)
                         on_start_response_with_input=move |value| update_home.update(move |home| home.conversation_parameters.start_response_with = value)
                         on_temperature_input=move |value| update_home.update(move |home| home.conversation_parameters.temperature = value)
@@ -553,7 +616,7 @@ fn Home() -> impl IntoView {
 }
 
 #[component]
-fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
+fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoView {
     let Context { is_loading, .. } = expect_context();
 
     let confirm_delete = create_rw_signal(false);
@@ -575,9 +638,9 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
             });
 
             let conversation = use_conversation(id);
-            let message_ids = conversation.read.with(|conversation| {
-                conversation.messages.clone()
-            });
+            let message_ids = conversation
+                .read
+                .with(|conversation| conversation.messages.clone());
             conversation.delete();
 
             for message_id in message_ids {
@@ -589,17 +652,16 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
         }
     };
 
-    let user_message_input = create_node_ref::<Input>();
-    let start_response_with_input = create_node_ref::<Input>();
-    //let (role, set_role) = create_signal(Role::User);
-
     // auto-scrolling
     // this is done by having an empty div at the bottom of the page (right before
     // the spacer) that we scroll into view whenever a change to the conversation
     // happens.
 
     pub fn scroll_to(target: NodeRef<Div>, smooth: bool) {
-        let Some(scroll_target) = target.get_untracked() else { return; };
+        let Some(scroll_target) = target.get_untracked()
+        else {
+            return;
+        };
 
         let mut scroll_options = web_sys::ScrollIntoViewOptions::new();
         scroll_options.block(ScrollLogicalPosition::End);
@@ -613,57 +675,70 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
         scroll_target.scroll_into_view_with_scroll_into_view_options(&scroll_options);
     }
 
-    let scroll_target = create_node_ref::<Div>();
-    let is_initial_scroll = create_rw_signal(true);
-
-    view!{
+    view! {
         {move || {
             let StorageSignals { read: conversation, write: update_conversation, .. } = use_conversation(id.get());
-    
+            let StorageSignals { read: settings, .. } = use_settings();
+
             // create effect to auto-scroll
-            create_effect(move |_| {
+            let scroll_target = create_node_ref::<Div>();
+            //let is_initial_scroll = create_rw_signal(true);
+
+            /*create_effect(move |_| {
                 conversation.with(|_| ());
                 let initial = is_initial_scroll.get_untracked();
                 scroll_to(scroll_target, !initial);
                 is_initial_scroll.set(false);
-            });
-    
+            });*/
+
             // send message
-    
+
             let on_submit = move |event: SubmitEvent| {
                 event.prevent_default();
-    
+
                 let Some((user_message, id)) = update_conversation.try_update(|conversation| (
                     std::mem::replace(&mut conversation.user_message, Default::default()),
                     conversation.id,
                 )) else { return; };
-    
+
                 push_user_message(id, user_message);
             };
-    
+
             let title = Signal::derive(move || {
                 with!(|conversation| conversation.title.clone())
             });
             let model_id = Signal::derive(move || {
-                with!(|conversation| conversation.model_id.clone())
+                with!(|conversation| conversation.model_id.clone().expect("no model"))
             });
-    
-    
+            let hide_system_prompt_input = Signal::derive(move || {
+                with!(|settings, model_id| {
+                    !settings
+                        .models
+                        .get(model_id)
+                        .unwrap()
+                        .chat_template
+                        .supports_system_prompt()
+                })
+            });
+
+            // FIXME this re-renders on any UI input :/
+            log::debug!("render conversation");
+
             view! {
                 <div class="d-flex flex-row px-4 pt-2 shadow-sm w-100">
                     <h4>
                         {title}
                     </h4>
-                    {move || model_id.get().map(|model_id| view! {
-                            <h6 class="mt-auto ms-4">
-                                <span class="badge bg-secondary">
-                                    <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
-                                    <span class="ms-1">
-                                        <BootstrapIcon icon="link-45deg" />
-                                    </span>
-                                </span>
-                            </h6>
-                    })}
+                    <h6 class="mt-auto ms-4">
+                        <span class="badge bg-secondary">
+                            {move || with!(|model_id| view!{
+                                <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
+                            })}
+                            <span class="ms-1">
+                                <BootstrapIcon icon="link-45deg" />
+                            </span>
+                        </span>
+                    </h6>
                     <div class="d-flex flex-row ms-auto pb-2">
                         <button
                             type="button"
@@ -683,54 +758,33 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
                         key=|message_id| *message_id
                         children=move |message_id| {
                             view! {
-                                <Message id=move || message_id />
+                                <Message id=message_id />
                             }
                         }
                     />
                     <div class="d-flex w-100 h-0" node_ref=scroll_target></div>
                     <div class="d-flex w-100" style="min-height: 10em;"></div>
                 </div>
-                <form on:submit=on_submit class="px-4 py-2 shadow">
-                    <div class="collapse p-4" id="sendMessageAdvancedContainer">
-                        /*<div class="input-group">
-                            <span class="input-group-text">"Role"</span>
-                            <div class="btn-group">
-                                <button
-                                    type="button"
-                                    class="btn btn-primary btn-outline-secondary"
-                                    class:btn-primary=move || role.get() == Role::User
-                                    class:btn-light=move || role.get() != Role::User
-                                    class:btn-outline-dark=move || role.get() == Role::User
-                                    class:btn-outline-secondary=move || role.get() != Role::User
-                                    on:click=move |_| set_role(Role::User)
-                                >
-                                    "User"
-                                </button>
-                                <button
-                                    type="button"
-                                    class="btn btn-light"
-                                    class:btn-primary=move || role.get() == Role::Assitant
-                                    class:btn-light=move || role.get() != Role::Assitant
-                                    class:btn-outline-dark=move || role.get() == Role::Assitant
-                                    class:btn-outline-secondary=move || role.get() != Role::Assitant
-                                    on:click=move |_| set_role(Role::Assitant)
-                                >
-                                    "Assistant"
-                                </button>
-                            </div>
-                        </div>*/
-                        <div class="input-group">
-                            <span class="input-group-text">"Start response with"</span>
-                            <input type="text" class="form-control" placeholder="Sure thing!" node_ref=start_response_with_input />
-                        </div>
+                <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
+                    <div class="collapse pb-2" id="sendMessageAdvancedContainer">
+                        <ConversationParametersInputGroup
+                            value=Signal::derive(move || conversation.with_untracked(|conversation| conversation.conversation_parameters.clone()))
+                            on_system_prompt_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.system_prompt = value)
+                            on_start_response_with_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.start_response_with = value)
+                            on_temperature_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.temperature = value)
+                            on_top_k_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.top_k = value)
+                            on_top_p_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.top_p = value)
+                            on_repetition_penalty_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.repetition_penalty = value)
+                            on_token_limit_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.token_limit = value)
+                            hide_system_prompt=hide_system_prompt_input
+                        />
                     </div>
                     <div class="input-group input-group-lg mb-3">
                         <input
                             type="text"
                             class="form-control"
                             placeholder="Ask anything"
-                            value=conversation.with_untracked(|conversation| conversation.user_message.clone())
-                            node_ref=user_message_input
+                            value=move || with!(|conversation| conversation.user_message.clone())
                             on:input=move |event| {
                                 let user_message = event_target_value(&event);
                                 update_conversation.update(|conversation| conversation.user_message = user_message);
@@ -760,7 +814,7 @@ fn Conversation(#[prop(into)] id: Signal<ConversationId>) -> impl IntoView {
 }
 
 #[component]
-fn Message(#[prop(into)] id: Signal<MessageId>) -> impl IntoView {
+fn Message(#[prop(into)] id: MaybeSignal<MessageId>) -> impl IntoView {
     let message = Signal::derive(move || {
         let StorageSignals { read: message, .. } = use_message(id.get());
         message.get()
@@ -789,7 +843,7 @@ fn Message(#[prop(into)] id: Signal<MessageId>) -> impl IntoView {
 
 #[component]
 fn ConversationParametersInputGroup(
-    #[prop(into, optional)] value: Signal<ConversationParameters>,
+    #[prop(into, optional)] value: MaybeSignal<ConversationParameters>,
     #[prop(into, optional)] on_system_prompt_input: Option<Callback<Option<String>>>,
     #[prop(into, optional)] on_token_limit_input: Option<Callback<Option<usize>>>,
     #[prop(into, optional)] on_temperature_input: Option<Callback<Option<f32>>>,
@@ -798,12 +852,18 @@ fn ConversationParametersInputGroup(
     #[prop(into, optional)] on_repetition_penalty_input: Option<Callback<Option<f32>>>,
     #[prop(into, optional)] on_start_response_with_input: Option<Callback<Option<String>>>,
     #[prop(into, optional)] hide_system_prompt: Signal<bool>,
-) -> impl IntoView
-{
+) -> impl IntoView {
     struct Error(String);
 
-    fn on_input<T: FromStr>(callback: Option<Callback<Option<T>>>, event: &Event, set_invalid: Option<RwSignal<bool>>) {
-        let element = event.target().unwrap().unchecked_into::<web_sys::HtmlInputElement>();
+    fn on_input<T: FromStr>(
+        callback: Option<Callback<Option<T>>>,
+        event: &Event,
+        set_invalid: Option<RwSignal<bool>>,
+    ) {
+        let element = event
+            .target()
+            .unwrap()
+            .unchecked_into::<web_sys::HtmlInputElement>();
 
         let mut valid = element.check_validity();
 
@@ -818,7 +878,7 @@ fn ConversationParametersInputGroup(
         else {
             None
         };
-        
+
         if let Some(callback) = callback {
             callback(value);
         }
@@ -834,7 +894,7 @@ fn ConversationParametersInputGroup(
     let invalid_top_p = create_rw_signal(false);
     let invalid_repetition_penalty = create_rw_signal(false);
 
-    view!{
+    view! {
         <div class="input-group mb-3" class:visually-hidden=hide_system_prompt>
             <span class="input-group-text">"System Prompt"</span>
             <textarea

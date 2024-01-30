@@ -36,5 +36,3 @@ pub fn get_input_value(node_ref: NodeRef<Input>, clear: bool) -> String {
     }
     value
 }
-
-
