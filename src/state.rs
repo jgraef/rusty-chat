@@ -1,6 +1,9 @@
 use std::{
     borrow::Cow,
-    collections::BTreeMap,
+    collections::{
+        BTreeMap,
+        HashSet,
+    },
     fmt::Write,
 };
 
@@ -16,6 +19,7 @@ use leptos_use::storage::{
     use_local_storage,
     JsonCodec,
 };
+use semver::Version;
 use serde::{
     Deserialize,
     Serialize,
@@ -24,94 +28,211 @@ use uuid::Uuid;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub enum StorageKey {
-    State,
+    Version,
+    Home,
+    Settings,
+    Conversations,
+    Conversation(ConversationId),
     Message(MessageId),
 }
 
 impl StorageKey {
     fn as_str(&self) -> Cow<'static, str> {
         match self {
-            Self::State => "state".into(),
-            Self::Message(id) => format!("msg-{id}").into(),
+            Self::Version => "version".into(),
+            Self::Home => "home".into(),
+            Self::Settings => "settings".into(),
+            Self::Conversations => "conversations".into(),
+            Self::Conversation(id) => format!("conversation-{id}").into(),
+            Self::Message(id) => format!("message-{id}").into(),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct StorageSignals<T: 'static> {
+    pub key: StorageKey,
+    pub read: Signal<T>,
+    pub write: WriteSignal<T>,
+}
+
+impl<T: 'static> StorageSignals<T> {
+    pub fn delete(&self) {
+        delete_storage(self.key)
     }
 }
 
 pub fn use_storage<T: Serialize + for<'de> Deserialize<'de> + Clone + Default + PartialEq>(
     key: StorageKey,
-) -> (Signal<T>, WriteSignal<T>, impl Fn() + Clone) {
-    let key = key.as_str();
-    use_local_storage::<T, JsonCodec>(key)
+) -> StorageSignals<T> {
+    let (read, write, _) = use_local_storage::<T, JsonCodec>(key.as_str());
+    StorageSignals { key, read, write }
 }
 
-pub fn use_message(
-    id: MessageId,
-) -> (
-    Signal<Option<Message>>,
-    WriteSignal<Option<Message>>,
-    impl Fn() + Clone,
-) {
-    use_storage::<Option<Message>>(StorageKey::Message(id))
+pub fn clear_storage() {
+    let Some(window) = web_sys::window()
+    else {
+        return;
+    };
+    let Some(storage) = window.local_storage().ok().flatten()
+    else {
+        return;
+    };
+    storage.clear().ok();
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct State {
-    #[serde(default = "current_state_version")]
-    pub version: u32,
-    pub models: BTreeMap<ModelId, Model>,
-    pub conversations: BTreeMap<ConversationId, Conversation>,
-    pub current_model: ModelId,
-    pub current_system_prompt: Option<String>,
+pub fn delete_storage(key: StorageKey) {
+    let Some(window) = web_sys::window()
+    else {
+        return;
+    };
+    let Some(storage) = window.local_storage().ok().flatten()
+    else {
+        return;
+    };
+    storage.delete(&key.as_str()).ok();
 }
 
-impl Default for State {
+pub fn use_version() -> StorageSignals<AppVersion> {
+    use_storage(StorageKey::Version)
+}
+
+pub fn use_home() -> StorageSignals<Home> {
+    use_storage(StorageKey::Home)
+}
+
+pub fn use_settings() -> StorageSignals<Settings> {
+    use_storage(StorageKey::Settings)
+}
+
+pub fn use_conversations() -> StorageSignals<HashSet<ConversationId>> {
+    use_storage(StorageKey::Conversations)
+}
+
+pub fn use_conversation(id: ConversationId) -> StorageSignals<Conversation> {
+    use_storage(StorageKey::Conversation(id))
+}
+
+pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
+    use_storage(StorageKey::Message(id))
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    derive_more::From,
+    derive_more::Into,
+    derive_more::Display,
+)]
+#[serde(transparent)]
+pub struct AppVersion(pub Version);
+
+impl Default for AppVersion {
     fn default() -> Self {
-        let mut models = BTreeMap::new();
+        Self(
+            std::env!("CARGO_PKG_VERSION")
+                .parse()
+                .expect("invalid version"),
+        )
+    }
+}
 
-        let mut add_model = |model_id: &'static str, chat_template| {
-            let model_id = ModelId(model_id.to_owned());
-            models.insert(
-                model_id.clone(),
-                Model {
-                    model_id,
-                    chat_template,
-                },
-            )
-        };
-        add_model(
-            "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO",
-            ChatTemplate::ChatML,
-        );
-        add_model("mistralai/Mistral-7B-Instruct-v0.2", ChatTemplate::Instruct);
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Settings {
+    pub models: BTreeMap<ModelId, Model>,
+}
 
+impl Default for Settings {
+    fn default() -> Self {
         #[derive(Debug, Deserialize)]
         struct DefaultModels {
             model: Vec<Model>,
         }
+
         let default_models: DefaultModels =
             toml::from_str(include_str!("../default_models.toml")).unwrap();
-        for model in default_models.model {
-            models.insert(model.model_id.clone(), model);
-        }
 
-        let current_model = models
-            .first_key_value()
-            .expect("expected at least one model")
-            .0
-            .to_owned();
+        let models = default_models
+            .model
+            .into_iter()
+            .map(|model| (model.model_id.clone(), model))
+            .collect();
 
-        Self {
-            version: current_state_version(),
-            models,
-            conversations: BTreeMap::new(),
-            current_model,
-            current_system_prompt: None,
-        }
+        Self { models }
     }
 }
 
-fn current_state_version() -> u32 {
-    1
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Home {
+    pub selected_model: Option<ModelId>,
+    pub conversation_parameters: ConversationParameters,
+    pub user_message: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+
+pub struct ConversationParameters {
+    pub system_prompt: Option<String>,
+    pub start_response_with: Option<String>,
+    pub token_limit: Option<usize>,
+    pub temperature: Option<f32>,
+    pub top_k: Option<usize>,
+    pub top_p: Option<f32>,
+    pub repetition_penalty: Option<f32>,
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    derive_more::Display,
+    derive_more::From,
+)]
+#[serde(transparent)]
+pub struct ConversationId(Uuid);
+
+impl ConversationId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Conversation {
+    pub id: ConversationId,
+    pub model_id: Option<ModelId>,
+    pub title: Option<String>,
+    pub timestamp_started: DateTime<Local>,
+    pub timestamp_last_interaction: DateTime<Local>,
+    pub conversation_parameters: ConversationParameters,
+    pub user_message: String,
+    pub messages: Vec<MessageId>,
+}
+
+impl Default for Conversation {
+    fn default() -> Self {
+        let now = Local::now();
+        Self {
+            id: ConversationId::new(),
+            model_id: None,
+            title: None,
+            timestamp_started: now,
+            timestamp_last_interaction: now,
+            conversation_parameters: Default::default(),
+            user_message: Default::default(),
+            messages: vec![],
+        }
+    }
 }
 
 #[derive(
@@ -149,6 +270,12 @@ pub enum ChatTemplate {
     ChatML,
 }
 
+impl Default for ChatTemplate {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
 impl ChatTemplate {
     pub fn supports_system_prompt(&self) -> bool {
         match self {
@@ -157,7 +284,12 @@ impl ChatTemplate {
         }
     }
 
-    pub fn generate_prompt(&self, system_prompt: Option<&str>, messages: &[Message]) -> String {
+    pub fn generate_prompt(
+        &self,
+        system_prompt: Option<&str>,
+        messages: &[Message],
+        start_response_with: Option<&str>,
+    ) -> String {
         let mut prompt = String::new();
         match self {
             Self::None => {
@@ -198,43 +330,11 @@ impl ChatTemplate {
                 write!(&mut prompt, "<|im_start|>assistant\n").unwrap()
             }
         }
+        if let Some(start_response_with) = start_response_with {
+            prompt.push_str(start_response_with);
+        }
         prompt
     }
-}
-
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    Deserialize,
-    derive_more::Display,
-    derive_more::From,
-)]
-#[serde(transparent)]
-pub struct ConversationId(Uuid);
-
-impl ConversationId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Conversation {
-    pub id: ConversationId,
-    pub model_id: ModelId,
-    pub hyper_parameters: HyperParameters,
-    pub system_prompt: Option<String>,
-    pub title: Option<String>,
-    pub timestamp_started: DateTime<Local>,
-    pub timestamp_last_interaction: DateTime<Local>,
-    pub messages: Vec<MessageId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

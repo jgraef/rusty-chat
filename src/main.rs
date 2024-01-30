@@ -1,5 +1,6 @@
 mod app;
 mod state;
+mod utils;
 
 use wasm_bindgen::JsCast;
 

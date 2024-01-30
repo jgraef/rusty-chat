@@ -24,3 +24,4 @@ web-sys = { version = "0.3", features = ["HtmlInputElement", "ScrollIntoViewOpti
 futures = "0.3"
 markdown = "1.0.0-alpha.16"
 hf-textgen = { git = "https://github.com/jgraef/hf-textgen.git" }
+semver = { version = "1", features = ["serde"] }
