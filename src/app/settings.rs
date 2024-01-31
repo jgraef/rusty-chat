@@ -1,5 +1,7 @@
 use leptos::{
     component,
+    create_node_ref,
+    html::Input,
     view,
     Children,
     IntoView,
@@ -13,7 +15,13 @@ use leptos_router::{
 };
 
 use super::BootstrapIcon;
-use crate::state::clear_storage;
+use crate::{
+    app::{
+        expect_context,
+        Context,
+    },
+    state::clear_storage,
+};
 
 #[component(transparent)]
 pub fn SettingsRoutes() -> impl IntoView {
@@ -22,6 +30,7 @@ pub fn SettingsRoutes() -> impl IntoView {
             <Route path="general" view=GeneralTab />
             <Route path="backends" view=BackendsTab />
             <Route path="models" view=ModelsTab />
+            <Route path="debug" view=DebugTab />
             <Route path="" view=|| view!{ <Redirect path="/settings/general" /> } />
         </Route>
     }
@@ -51,6 +60,7 @@ fn Settings() -> impl IntoView {
             <Tab href="/settings/general">"General"</Tab>
             <Tab href="/settings/models">"Models"</Tab>
             <Tab href="/settings/backends">"Backends"</Tab>
+            <Tab href="/settings/debug">"Debug"</Tab>
         </ul>
         <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
             <Outlet />
@@ -61,7 +71,32 @@ fn Settings() -> impl IntoView {
 #[component]
 fn GeneralTab() -> impl IntoView {
     view! {
-        <div class="modal" id="settings_general_reset_modal" tabindex="-1">
+        "General tab"
+    }
+}
+
+#[component]
+fn BackendsTab() -> impl IntoView {
+    view! {
+        "Backends tab"
+    }
+}
+
+#[component]
+fn ModelsTab() -> impl IntoView {
+    view! {
+        "Models tab"
+    }
+}
+
+#[component]
+fn DebugTab() -> impl IntoView {
+    let Context { errors, .. } = expect_context();
+
+    let emit_error_input = create_node_ref::<Input>();
+
+    view! {
+        <div class="modal fade" id="settings_general_reset_modal" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -96,27 +131,28 @@ fn GeneralTab() -> impl IntoView {
             </div>*/
             <button
                 type="button"
-                class="btn btn-danger"
+                class="btn btn-danger mb-3"
                 data-bs-toggle="modal"
                 data-bs-target="#settings_general_reset_modal"
             >
                 <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
                 "Reset app"
             </button>
+            <div class="input-group mb-3">
+                <input type="text" class="form-control" placeholder="Error message" node_ref=emit_error_input />
+                <button
+                    class="btn btn-primary"
+                    type="button"
+                    on:click=move |_| {
+                        let message = emit_error_input.get_untracked().unwrap().value();
+                        if !message.is_empty() {
+                            errors.push(message);
+                        }
+                    }
+                >
+                    "Emit error"
+                </button>
+            </div>
         </form>
-    }
-}
-
-#[component]
-fn BackendsTab() -> impl IntoView {
-    view! {
-        "Backends tab"
-    }
-}
-
-#[component]
-fn ModelsTab() -> impl IntoView {
-    view! {
-        "Models tab"
     }
 }

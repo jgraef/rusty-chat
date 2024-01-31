@@ -3,7 +3,11 @@ pub mod conversation_parameters;
 pub mod home;
 pub mod settings;
 
-use std::sync::Arc;
+use std::{
+    cmp::Ordering,
+    fmt::Display,
+    sync::Arc,
+};
 
 use chrono::{
     DateTime,
@@ -13,6 +17,7 @@ use futures::{
     stream::TryStreamExt,
     FutureExt,
 };
+use lazy_static::lazy_static;
 use leptos::{
     component,
     create_memo,
@@ -51,6 +56,7 @@ use leptos_use::{
     ColorMode,
     UseColorModeReturn,
 };
+use semver::Version;
 use uuid::Uuid;
 
 use self::{
@@ -64,7 +70,6 @@ use crate::state::{
     use_message,
     use_settings,
     use_version,
-    AppVersion,
     ConversationId,
     Message,
     MessageId,
@@ -72,29 +77,81 @@ use crate::state::{
     StorageSignals,
 };
 
+lazy_static! {
+    pub static ref VERSION: Version = std::env!("CARGO_PKG_VERSION")
+        .parse()
+        .expect("invalid version");
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("text generation error")]
     TextGeneration(#[from] hf_textgen::Error),
 }
 
+#[derive(Clone, Debug)]
+pub struct ErrorMessage {
+    id: Uuid,
+    message: String,
+}
+
+#[derive(Copy, Clone)]
+pub struct Errors(RwSignal<Vec<ErrorMessage>>);
+
+impl Default for Errors {
+    fn default() -> Self {
+        Self(create_rw_signal(vec![]))
+    }
+}
+
+impl Errors {
+    pub fn push(&self, message: impl Display) {
+        let error = ErrorMessage {
+            id: Uuid::new_v4(),
+            message: message.to_string(),
+        };
+        self.0.update(|errors| errors.push(error))
+    }
+}
+
 #[derive(Clone)]
 pub struct Context {
     pub api: Arc<hf_textgen::Api>,
     pub is_loading: RwSignal<bool>,
+    pub errors: Errors,
 }
 
 fn provide_context() {
-    let version = use_version();
-    let stored_version = version.read.get_untracked();
-    let current_version = AppVersion::default();
-    log::info!("stored version: {}", stored_version);
-    log::info!("current version: {}", current_version);
-    //version.write.set(current_version);
+    log::info!("app version: {}", *VERSION);
+
+    let StorageSignals {
+        write: update_version,
+        ..
+    } = use_version();
+    update_version.try_update(|storage_version| {
+        log::info!("storage version: {:?}", storage_version);
+
+        if let Some(storage_version) = storage_version {
+            match VERSION.cmp(&storage_version) {
+                Ordering::Less => {
+                    log::error!("version error: storage > app");
+                    panic!("version error");
+                }
+                Ordering::Equal => {}
+                Ordering::Greater => {
+                    todo!("migrate storage");
+                }
+            }
+        }
+        else {
+            *storage_version = Some(VERSION.clone());
+        }
+    });
 
     leptos::provide_context(Context {
         api: Arc::new(hf_textgen::Api::default()),
         is_loading: create_rw_signal(false),
+        errors: Errors::default(),
     });
 }
 
@@ -104,7 +161,10 @@ pub fn expect_context() -> Context {
 
 pub fn push_user_message(conversation_id: ConversationId, user_message: String) {
     let Context {
-        api, is_loading, ..
+        api,
+        is_loading,
+        errors,
+        ..
     } = expect_context();
 
     let message_id = MessageId::new();
@@ -232,7 +292,8 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
         }
         .map(move |result: Result<(), Error>| {
             if let Err(e) = result {
-                log::error!("{e}");
+                log::error!("response stream failed: {e}");
+                errors.push(e);
             }
             log::debug!("response stream finished");
             is_loading.set(false);
@@ -241,7 +302,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
 }
 
 fn request_conversation_title(conversation_id: ConversationId, user_message: &str) {
-    let Context { api, .. } = expect_context();
+    let Context { api, errors, .. } = expect_context();
 
     let mut model = api.text_generation("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO");
     model.max_new_tokens = Some(20);
@@ -286,7 +347,8 @@ Message: {user_message}
         }
         .map(move |result: Result<(), Error>| {
             if let Err(e) = result {
-                log::error!("{e}");
+                log::error!("title generation failed: {e}");
+                errors.push(e);
             }
         }),
     )
@@ -369,6 +431,8 @@ pub fn App() -> impl IntoView {
         (bs_theme, toggle_theme, theme_icon)
     };
 
+    let Context { errors, .. } = expect_context();
+
     view! {
         <Html
             attr:data-bs-theme=bs_theme
@@ -431,7 +495,31 @@ pub fn App() -> impl IntoView {
                     </ul>
                 </nav>
                 <main class="w-100 p-0 main">
-                    <div class="d-flex flex-column flex-grow-1 h-100" style="max-height: 100vh">
+                    <div class="d-flex flex-column flex-grow-1 h-100 position-relative" style="max-height: 100vh">
+                        <div class="z-1 position-absolute top-0 start-50 translate-middle-x w-50">
+                            <div
+                                class="alert alert-danger alert-dismissible fade show mx-4 mt-2"
+                                class:visually-hidden=move || errors.0.with(|errors| errors.is_empty())
+                                role="alert"
+                            >
+                                <For
+                                    each=move || errors.0.get()
+                                    key=|error| error.id
+                                    children=|error| view!{
+                                        <p>
+                                            <span class="me-2"><BootstrapIcon icon="exclamation-circle" /></span>
+                                            {error.message}
+                                        </p>
+                                    }
+                                />
+                                <button
+                                    type="button"
+                                    class="btn-close"
+                                    aria-label="Close"
+                                    on:click=move |_| errors.0.update(|errors| errors.clear())
+                                ></button>
+                            </div>
+                        </div>
                         <Routes>
                             <Route path="/" view=Home />
                             <Route path="/conversation/:id" view=move || {

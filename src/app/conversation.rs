@@ -1,5 +1,6 @@
 use leptos::{
     component,
+    create_effect,
     create_node_ref,
     create_rw_signal,
     event_target_value,
@@ -139,7 +140,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
 
             view! {
                 // delete modal
-                <div class="modal" id="conversation_delete_modal_modal" tabindex="-1">
+                <div class="modal fade" id="conversation_delete_modal_modal" tabindex="-1">
                     <div class="modal-dialog">
                         <div class="modal-content">
                             <div class="modal-header">
@@ -194,15 +195,32 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                         {move || if edit_title.get() {
                             let edit_title_input = create_node_ref::<Input>();
 
+                            create_effect(move |_| {
+                                log::debug!("focus");
+                                edit_title_input.get().map(|elem| elem.focus().unwrap());
+                            });
+
+                            let set_title = move || {
+                                let Some(edit_title_input) = edit_title_input.get() else { return; };
+                                let Some(new_title) = non_empty(edit_title_input.value()) else { return; };
+                                update_conversation.update(move |conversation| conversation.title = Some(new_title));
+                                edit_title.set(false);
+                            };
+
                             view!{
                                 <form on:submit=move |e: SubmitEvent| {
                                     e.prevent_default();
-                                    let Some(edit_title_input) = edit_title_input.get() else { return; };
-                                    let Some(new_title) = non_empty(edit_title_input.value()) else { return; };
-                                    update_conversation.update(move |conversation| conversation.title = Some(new_title));
-                                    edit_title.set(false);
+                                    set_title();
                                 }>
-                                    <input type="text" class="form-control" placeholder="Conversation title" value=title node_ref=edit_title_input />
+                                    <input
+                                        type="text"
+                                        class="form-control"
+                                        placeholder="Conversation title"
+                                        value=title
+                                        size=move || with!(|title| title.as_ref().map(|s| s.len()))
+                                        node_ref=edit_title_input
+                                        on:focusout=move |_| set_title()
+                                    />
                                 </form>
                             }.into_view()
                         }
@@ -211,7 +229,15 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                                 <h4>
                                     {title}
                                 </h4>
-                                <span href="#" class="ms-1 mt-1 link-secondary" style="cursor: pointer;" on:click=move |_| edit_title.set(true)>
+                                <span
+                                    href="#"
+                                    class="ms-1 mt-1 link-secondary"
+                                    style="cursor: pointer;"
+                                    on:click=move |_| {
+                                        edit_title.set(true);
+                                        //edit_title_input.get_untracked().unwrap().focus();
+                                    }
+                                >
                                     <BootstrapIcon icon="pencil-square" />
                                 </span>
                             }.into_view()
@@ -320,7 +346,7 @@ fn Message(#[prop(into)] id: MaybeSignal<MessageId>) -> impl IntoView {
 
                 view!{
                     <div
-                        class="rounded rounded-3 w-75 mw-75 my-2 p-2 shadow-sm message-background markdown"
+                        class="rounded rounded-3 w-75 mw-75 my-2 p-2 shadow-sm message markdown"
                         class:ms-auto=is_assistant
                         inner_html=html
                     >

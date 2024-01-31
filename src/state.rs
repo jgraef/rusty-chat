@@ -93,7 +93,7 @@ pub fn delete_storage(key: StorageKey) {
     storage.delete(&key.as_str()).ok();
 }
 
-pub fn use_version() -> StorageSignals<AppVersion> {
+pub fn use_version() -> StorageSignals<Option<Version>> {
     use_storage(StorageKey::Version)
 }
 
@@ -115,29 +115,6 @@ pub fn use_conversation(id: ConversationId) -> StorageSignals<Conversation> {
 
 pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
     use_storage(StorageKey::Message(id))
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    derive_more::From,
-    derive_more::Into,
-    derive_more::Display,
-)]
-#[serde(transparent)]
-pub struct AppVersion(pub Version);
-
-impl Default for AppVersion {
-    fn default() -> Self {
-        Self(
-            std::env!("CARGO_PKG_VERSION")
-                .parse()
-                .expect("invalid version"),
-        )
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

@@ -13,7 +13,8 @@
 }
 
 .sidebar .nav-link.active {
-    background:  #16012e;
+    /*background:  #16012e;*/
+    background: rgba(0, 0, 0, 0.5);
 }
 
 .main {
@@ -24,11 +25,11 @@
     overflow-y: hidden;
 }
 
-[data-bs-theme=light] .message-background {
+[data-bs-theme=light] .message {
     background-color: var(--bs-gray-100);
 }
 
-[data-bs-theme=dark] .message-background {
+[data-bs-theme=dark] .message {
     background-color: var(--bs-gray-800);
 }
 

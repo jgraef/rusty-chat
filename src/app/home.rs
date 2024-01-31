@@ -8,6 +8,7 @@ use leptos::{
     html::Input,
     view,
     with,
+    CollectView,
     For,
     IntoView,
     Signal,
@@ -171,7 +172,7 @@ pub fn Home() -> impl IntoView {
                                     {example}
                                 </button>
                             }
-                        }).collect::<Vec<_>>()
+                        }).collect_view()
                     }
                 </div>
             </div>
