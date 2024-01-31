@@ -1,0 +1,38 @@
+[[model]]
+model_id = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
+chat_template = "ChatML"
+
+[[model]]
+model_id = "mistralai/Mistral-7B-Instruct-v0.2"
+chat_template = "Instruct"
+
+[[model]]
+model_id = "mistralai/Mistral-7B-v0.1"
+
+[[model]]
+model_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+chat_template = "Instruct"
+
+#[[model]]
+#model_id = "codellama/CodeLlama-70b-Instruct-hf"
+#chat_template = "CodeLlamaInstruct"
+
+[[model]]
+model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+chat_template = "ChatML"
+
+[[model]]
+model_id = "HuggingFaceH4/zephyr-7b-beta"
+chat_template = "ChatML"
+
+[[model]]
+model_id = "openai-community/gpt2"
+
+[[model]]
+model_id = "bigcode/starcoder"
+
+[[model]]
+model_id = "codellama/CodeLlama-7b-hf"
+
+[[model]]
+model_id = "cognitivecomputations/TinyDolphin-2.8.1-1.1b"

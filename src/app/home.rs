@@ -22,7 +22,7 @@ use leptos::{
 use leptos_router::use_navigate;
 
 use super::{
-    conversation_parameters::ConversationParametersInputGroup,
+    conversation::ConversationParametersInputGroup,
     push_user_message,
     request_conversation_title,
     BootstrapIcon,
@@ -55,14 +55,7 @@ pub fn Home() -> impl IntoView {
         write: update_home,
         ..
     } = use_home();
-    let current_model = Signal::derive(move || {
-        with!(|home| {
-            home.selected_model.clone().unwrap_or_else(move || {
-                settings
-                    .with_untracked(|settings| settings.models.first_key_value().unwrap().0.clone())
-            })
-        })
-    });
+    let current_model = Signal::derive(move || with!(|home| home.selected_model.clone()));
 
     let hide_system_prompt_input = Signal::derive(move || {
         with!(|settings, current_model| {
@@ -85,7 +78,7 @@ pub fn Home() -> impl IntoView {
         log::debug!("model selected: {model_id}");
 
         update_home.update(move |home| {
-            home.selected_model = Some(model_id);
+            home.selected_model = model_id;
         });
     };
 
@@ -112,7 +105,7 @@ pub fn Home() -> impl IntoView {
             write: update_conversation,
             ..
         } = use_conversation(conversation_id);
-        update_conversation.set(conversation);
+        update_conversation.set(Some(conversation));
 
         request_conversation_title(conversation_id, &user_message);
         push_user_message(conversation_id, user_message);

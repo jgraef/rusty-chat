@@ -1,3 +1,8 @@
+use std::{
+    fmt::Display,
+    str::FromStr,
+};
+
 use leptos::{
     component,
     create_effect,
@@ -11,10 +16,12 @@ use leptos::{
     update,
     view,
     with,
+    Callback,
     For,
     IntoView,
     MaybeSignal,
     NodeRef,
+    RwSignal,
     Signal,
     SignalGet,
     SignalGetUntracked,
@@ -22,16 +29,17 @@ use leptos::{
     SignalUpdate,
     SignalWith,
     SignalWithUntracked,
+    WriteSignal,
 };
 use leptos_router::use_navigate;
 use web_sys::{
+    Event,
     ScrollLogicalPosition,
     SubmitEvent,
 };
 
 use crate::{
     app::{
-        conversation_parameters::ConversationParametersInputGroup,
         expect_context,
         push_user_message,
         BootstrapIcon,
@@ -44,6 +52,7 @@ use crate::{
         use_message,
         use_settings,
         ConversationId,
+        ConversationParameters,
         MessageId,
         Role,
         StorageKey,
@@ -100,9 +109,15 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             let on_submit = move |event: SubmitEvent| {
                 event.prevent_default();
 
-                let Some((user_message, id)) = update_conversation.try_update(|conversation| {
+                let id = id.get_untracked();
+
+                let Some(user_message) = update_conversation.try_update(|conversation| {
+                    let Some(conversation) = conversation else {
+                        log::warn!("conversation gone: {id}");
+                        return None;
+                    };
                     let user_message = non_empty(std::mem::replace(&mut conversation.user_message, Default::default()))?;
-                    Some((user_message, conversation.id))
+                    Some(user_message)
                 }).flatten()
                 else {
                     return;
@@ -112,15 +127,16 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             };
 
             let title = Signal::derive(move || {
-                with!(|conversation| conversation.title.clone())
+                with!(|conversation| conversation.as_ref().and_then(|conversation| conversation.title.clone()))
             });
 
             let model_id = Signal::derive(move || {
-                with!(|conversation| conversation.model_id.clone().expect("no model"))
+                with!(|conversation| conversation.as_ref().and_then(|conversation| conversation.model_id.clone()))
             });
 
             let hide_system_prompt_input = Signal::derive(move || {
                 with!(|settings, model_id| {
+                    let Some(model_id) = model_id else { return false };
                     !settings
                         .models
                         .get(model_id)
@@ -131,12 +147,26 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             });
 
             let disable_send = Signal::derive(move || {
-                is_loading.get() || with!(|conversation| conversation.user_message.is_empty())
+                is_loading.get() || with!(|conversation| conversation.as_ref().map(|conversation| conversation.user_message.is_empty()).unwrap_or(true))
             });
 
             let edit_title = create_rw_signal(false);
 
             log::debug!("render conversation: {}", id.get_untracked());
+
+            // this takes a closure which updates the conversation parameters and returns a closure that only takes the new value.
+            fn update_conversation_parameters<T>(
+                update_conversation: WriteSignal<Option<crate::state::Conversation>>,
+                update: impl FnMut(&mut ConversationParameters, T) + Clone
+            ) -> impl Fn(T) {
+                move |value| {
+                    let mut update = update.clone();
+                    update_conversation.update(move |conversation: &mut Option<crate::state::Conversation>| {
+                        let Some(conversation) = conversation.as_mut() else { return; };
+                        update(&mut conversation.conversation_parameters, value);
+                    });
+                }
+            }
 
             view! {
                 // delete modal
@@ -174,7 +204,13 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                                         let conversation = use_conversation(id);
                                         let message_ids = conversation
                                             .read
-                                            .with(|conversation| conversation.messages.clone());
+                                            .with(|conversation| {
+                                                let Some(conversation) = conversation else {
+                                                    log::warn!("conversation gone: {id}");
+                                                    return vec![];
+                                                };
+                                                conversation.messages.clone()
+                                            });
                                         conversation.delete();
 
                                         for message_id in message_ids {
@@ -203,7 +239,13 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             let set_title = move || {
                                 let Some(edit_title_input) = edit_title_input.get() else { return; };
                                 let Some(new_title) = non_empty(edit_title_input.value()) else { return; };
-                                update_conversation.update(move |conversation| conversation.title = Some(new_title));
+                                update_conversation.update(move |conversation| {
+                                    let Some(conversation) = conversation else {
+                                        log::warn!("conversation gone");
+                                        return;
+                                    };
+                                    conversation.title = Some(new_title)
+                                });
                                 edit_title.set(false);
                             };
 
@@ -243,16 +285,20 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             }.into_view()
                         }}
                     </div>
-                    <h6 class="mt-auto ms-4">
-                        <span class="badge bg-secondary">
-                            {move || with!(|model_id| view!{
-                                <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
-                            })}
-                            <span class="ms-1">
-                                <BootstrapIcon icon="link-45deg" />
-                            </span>
-                        </span>
-                    </h6>
+                    {move || {
+                        model_id.get().map(|model_id| {
+                            view!{
+                                <h6 class="mt-auto ms-4">
+                                <span class="badge bg-secondary">
+                                    <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
+                                    <span class="ms-1">
+                                        <BootstrapIcon icon="link-45deg" />
+                                    </span>
+                                </span>
+                            </h6>
+                            }
+                        })
+                    }}
                     <div class="d-flex flex-row ms-auto pb-2">
                         <button
                             type="button"
@@ -269,7 +315,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 // messages
                 <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100">
                     <For
-                        each=move || with!(|conversation| conversation.messages.clone())
+                        each=move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.messages.clone()).unwrap_or_default())
                         key=|message_id| *message_id
                         children=move |message_id| {
                             view! {
@@ -285,14 +331,17 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
                     <div class="collapse pb-2" id="sendMessageAdvancedContainer">
                         <ConversationParametersInputGroup
-                            value=Signal::derive(move || conversation.with_untracked(|conversation| conversation.conversation_parameters.clone()))
-                            on_system_prompt_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.system_prompt = value)
-                            on_start_response_with_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.start_response_with = value)
-                            on_temperature_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.temperature = value)
-                            on_top_k_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.top_k = value)
-                            on_top_p_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.top_p = value)
-                            on_repetition_penalty_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.repetition_penalty = value)
-                            on_token_limit_input=move |value| update_conversation.update(move |conversation| conversation.conversation_parameters.token_limit = value)
+                            value=Signal::derive(move || conversation.with_untracked(|conversation| {
+                                conversation.as_ref().map(|conversation| conversation.conversation_parameters.clone())
+                                    .unwrap_or_default()
+                            }))
+                            on_system_prompt_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.system_prompt = value)
+                            on_start_response_with_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.start_response_with = value)
+                            on_temperature_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.temperature = value)
+                            on_top_k_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.top_k = value)
+                            on_top_p_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.top_p = value)
+                            on_repetition_penalty_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.repetition_penalty = value)
+                            on_token_limit_input=update_conversation_parameters(update_conversation, |params: &mut ConversationParameters, value| params.token_limit = value)
                             hide_system_prompt=hide_system_prompt_input
                         />
                     </div>
@@ -301,10 +350,13 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             type="text"
                             class="form-control"
                             placeholder="Ask anything"
-                            value=move || with!(|conversation| conversation.user_message.clone())
+                            value=move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.user_message.clone()).unwrap_or_default())
                             on:input=move |event| {
                                 let user_message = event_target_value(&event);
-                                update_conversation.update(|conversation| conversation.user_message = user_message);
+                                update_conversation.update(|conversation| {
+                                    let Some(conversation) = conversation else { return; };
+                                    conversation.user_message = user_message
+                                });
                             }
                         />
                         <button class="btn btn-outline-secondary" type="submit" disabled=disable_send>
@@ -354,5 +406,132 @@ fn Message(#[prop(into)] id: MaybeSignal<MessageId>) -> impl IntoView {
                 }
             })
         }}
+    }
+}
+
+/*
+        on_input=move |update| update_conversation(move |conversation| {
+            let Some(conversation) = conversation.as_mut() else { return; };
+            update(&mut conversation.conversation_parameters);
+        })
+*/
+
+#[component]
+pub fn ConversationParametersInputGroup(
+    #[prop(into, optional)] value: MaybeSignal<ConversationParameters>,
+    #[prop(into, optional)] on_system_prompt_input: Option<Callback<Option<String>>>,
+    #[prop(into, optional)] on_token_limit_input: Option<Callback<Option<usize>>>,
+    #[prop(into, optional)] on_temperature_input: Option<Callback<Option<f32>>>,
+    #[prop(into, optional)] on_top_k_input: Option<Callback<Option<usize>>>,
+    #[prop(into, optional)] on_top_p_input: Option<Callback<Option<f32>>>,
+    #[prop(into, optional)] on_repetition_penalty_input: Option<Callback<Option<f32>>>,
+    #[prop(into, optional)] on_start_response_with_input: Option<Callback<Option<String>>>,
+    #[prop(into, optional)] hide_system_prompt: Signal<bool>,
+) -> impl IntoView {
+    struct Error(String);
+
+    fn on_input<T: FromStr>(
+        callback: Option<Callback<Option<T>>>,
+        event: &Event,
+        set_invalid: Option<RwSignal<bool>>,
+    ) where
+        T::Err: Display,
+    {
+        let value = event_target_value(event);
+        let value = non_empty(value).map(|s| s.parse::<T>()).transpose();
+        let valid = if let Err(e) = &value {
+            log::debug!("parse failed: {e}");
+            false
+        }
+        else {
+            true
+        };
+        let value = value.ok().flatten();
+
+        if let Some(callback) = callback {
+            callback(value);
+        }
+
+        if let Some(set_invalid) = set_invalid {
+            set_invalid.set(!valid);
+        }
+    }
+
+    let invalid_token_limit = create_rw_signal(false);
+    let invalid_temperature = create_rw_signal(false);
+    let invalid_top_k = create_rw_signal(false);
+    let invalid_top_p = create_rw_signal(false);
+    let invalid_repetition_penalty = create_rw_signal(false);
+
+    view! {
+        <div class="input-group mb-3" class:visually-hidden=hide_system_prompt>
+            <span class="input-group-text">"System Prompt"</span>
+            <textarea
+                class="form-control"
+                rows="3"
+                on:input=move |event| on_input(on_system_prompt_input, &event, None)
+            >
+                {with!(|value| value.system_prompt.clone())}
+            </textarea>
+        </div>
+        <div class="input-group mb-3">
+            <span class="input-group-text">"Start response with"</span>
+            <input
+                type="text"
+                class="form-control"
+                placeholder="Sure thing!"
+                value=with!(|value| value.start_response_with.clone())
+                on:input=move |event| on_input(on_start_response_with_input, &event, None) />
+        </div>
+        <div class="d-flex flex-row mb-3">
+            <div class="input-group me-3">
+                <span class="input-group-text">"Temperature"</span>
+                <input
+                    type="text"
+                    class="form-control"
+                    class:is-invalid=invalid_temperature
+                    value=with!(|value| value.temperature)
+                    on:input=move |event| on_input(on_temperature_input, &event, Some(invalid_temperature))
+                />
+            </div>
+            <div class="input-group me-3">
+                <span class="input-group-text">"Top K"</span>
+                <input
+                    type="text"
+                    class="form-control"
+                    class:is-invalid=invalid_top_k
+                    value=with!(|value| value.top_k)
+                    on:input=move |event| on_input(on_top_k_input, &event, Some(invalid_top_k))
+                />
+            </div>
+            <div class="input-group me-3">
+                <span class="input-group-text">"Top P"</span>
+                <input
+                    type="text"
+                    class="form-control"
+                    class:is-invalid=invalid_top_p
+                    value=with!(|value| value.top_p)
+                    on:input=move |event| on_input(on_top_p_input, &event, Some(invalid_top_p)) />
+            </div>
+            <div class="input-group me-3">
+                <span class="input-group-text">"Repetition penalty"</span>
+                <input
+                    type="text"
+                    class="form-control"
+                    class:is-invalid=invalid_repetition_penalty
+                    value=with!(|value| value.repetition_penalty)
+                    on:input=move |event| on_input(on_repetition_penalty_input, &event, Some(invalid_repetition_penalty)) />
+            </div>
+            <div class="input-group">
+                <span class="input-group-text">"Token limit"</span>
+                <input
+                    type="text"
+                    class="form-control"
+                    class:is-invalid=invalid_token_limit
+                    value={with!(|value| value.token_limit)}
+                    on:input=move |event| on_input(on_token_limit_input, &event, Some(invalid_token_limit))
+                />
+            </div>
+        </div>
     }
 }

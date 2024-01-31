@@ -175,11 +175,11 @@ fn DebugTab() -> impl IntoView {
                     type="button"
                     class="btn btn-danger me-3"
                     on:click=move |_| {
-                        update_settings.update(|settings| settings.reset_models());
+                        update_settings.update(|settings| settings.reset());
                     }
                 >
                     <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
-                    "Reset models"
+                    "Reset settings"
                 </button>
             </div>
             <div class="input-group mb-3">

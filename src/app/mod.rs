@@ -1,5 +1,4 @@
 pub mod conversation;
-pub mod conversation_parameters;
 pub mod home;
 pub mod settings;
 
@@ -85,8 +84,12 @@ lazy_static! {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("text generation error")]
+    #[error("Text generation error")]
     TextGeneration(#[from] hf_textgen::Error),
+    #[error("Conversation not found: {0}")]
+    ConversationNotFound(ConversationId),
+    #[error("Model ID not set")]
+    ModelIdNotSet,
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +109,7 @@ impl Default for Errors {
 
 impl Errors {
     pub fn push(&self, message: impl Display) {
+        log::error!("{message}");
         let error = ErrorMessage {
             id: Uuid::new_v4(),
             message: message.to_string(),
@@ -182,7 +186,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
     }));
 
     // add message to conversation and get model_id and prompt
-    let (model_id, prompt, conversation_parameters) = {
+    let result = {
         let StorageSignals {
             write: update_conversation,
             ..
@@ -191,10 +195,14 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
 
         update_conversation
             .try_update(move |conversation| {
+                let conversation = conversation
+                    .as_mut()
+                    .ok_or_else(|| Error::ConversationNotFound(conversation_id))?;
+
                 let model_id = conversation
                     .model_id
                     .clone()
-                    .expect("conversation has no model_id set");
+                    .ok_or_else(|| Error::ModelIdNotSet)?;
 
                 conversation.messages.push(message_id);
                 conversation.timestamp_last_interaction = now;
@@ -226,13 +234,21 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                         .map(|s| s.as_str()),
                 );
 
-                (
+                Ok::<_, Error>((
                     model_id,
                     prompt,
                     conversation.conversation_parameters.clone(),
-                )
+                ))
             })
             .unwrap()
+    };
+
+    let (model_id, prompt, conversation_parameters) = match result {
+        Ok(x) => x,
+        Err(e) => {
+            errors.push(e);
+            return;
+        }
     };
 
     let mut model = api.text_generation(&model_id.0);
@@ -268,8 +284,13 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                 ..
             } = use_conversation(conversation_id);
             set_conversation.update(|conversation| {
-                conversation.messages.push(message_id);
-                conversation.timestamp_last_interaction = now;
+                if let Some(conversation) = conversation {
+                    conversation.messages.push(message_id);
+                    conversation.timestamp_last_interaction = now;
+                }
+                else {
+                    log::warn!("conversation does not exist: {conversation_id}");
+                }
             });
 
             while let Some(token) = stream.try_next().await? {
@@ -340,7 +361,12 @@ Message: {user_message}
             log::debug!("generated title: '{title}'");
 
             update_conversation.update(move |conversation| {
-                conversation.title = Some(title);
+                if let Some(conversation) = conversation {
+                    conversation.title = Some(title);
+                }
+                else {
+                    log::warn!("conversation does not exist: {conversation_id}");
+                }
             });
 
             Ok(())
@@ -395,7 +421,15 @@ pub fn App() -> impl IntoView {
                 let StorageSignals {
                     read: conversation, ..
                 } = use_conversation(*id);
-                let timestamp = with!(|conversation| conversation.timestamp_last_interaction);
+                let Some(timestamp) = with!(|conversation| {
+                    conversation
+                        .as_ref()
+                        .map(|conversation| conversation.timestamp_last_interaction)
+                })
+                else {
+                    log::warn!("dangling conversation entry: {id}");
+                    continue;
+                };
                 sorted_items.push(Item { id: *id, timestamp });
             }
 
@@ -464,7 +498,7 @@ pub fn App() -> impl IntoView {
                                 children=move |item| {
                                     // note: i can't make this work, if we put the title signal into the memo.
                                     let StorageSignals { read: conversation, .. } = use_conversation(item.id);
-                                    let title = Signal::derive(move || with!(|conversation| conversation.title.clone()));
+                                    let title = Signal::derive(move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.title.clone())));
 
                                     view! {
                                         <NavLink href=format!("/conversation/{}", item.id)>

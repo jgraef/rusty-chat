@@ -11,13 +11,14 @@ use chrono::{
     DateTime,
     Local,
 };
+use lazy_static::lazy_static;
 use leptos::{
     Signal,
     WriteSignal,
 };
-use leptos_use::storage::{
-    use_local_storage,
-    JsonCodec,
+use leptos_use::{
+    storage::use_local_storage,
+    utils::JsonCodec,
 };
 use semver::Version;
 use serde::{
@@ -109,12 +110,24 @@ pub fn use_conversations() -> StorageSignals<HashSet<ConversationId>> {
     use_storage(StorageKey::Conversations)
 }
 
-pub fn use_conversation(id: ConversationId) -> StorageSignals<Conversation> {
+pub fn use_conversation(id: ConversationId) -> StorageSignals<Option<Conversation>> {
     use_storage(StorageKey::Conversation(id))
 }
 
 pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
     use_storage(StorageKey::Message(id))
+}
+
+#[derive(Debug, Deserialize)]
+struct DefaultSettings {
+    #[serde(rename = "model", default)]
+    models: Vec<Model>,
+}
+
+lazy_static! {
+    static ref DEFAULT_SETTINGS: DefaultSettings =
+        toml::from_str(include_str!("../default_settings.toml"))
+            .expect("invalid default_settings.toml");
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -125,19 +138,11 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn reset_models(&mut self) {
-        #[derive(Debug, Deserialize)]
-        struct DefaultModels {
-            model: Vec<Model>,
-        }
-
-        let default_models: DefaultModels =
-            toml::from_str(include_str!("../default_models.toml")).unwrap();
-
-        self.models = default_models
-            .model
-            .into_iter()
-            .map(|model| (model.model_id.clone(), model))
+    pub fn reset(&mut self) {
+        self.models = DEFAULT_SETTINGS
+            .models
+            .iter()
+            .map(|model| (model.model_id.clone(), model.clone()))
             .collect();
     }
 }
@@ -148,16 +153,33 @@ impl Default for Settings {
             models: BTreeMap::new(),
             show_debug_tab: false,
         };
-        this.reset_models();
+        this.reset();
         this
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Home {
-    pub selected_model: Option<ModelId>,
+    #[serde(default = "default_model")]
+    pub selected_model: ModelId,
+    #[serde(default)]
     pub conversation_parameters: ConversationParameters,
+    #[serde(default)]
     pub user_message: String,
+}
+
+impl Default for Home {
+    fn default() -> Self {
+        Self {
+            selected_model: default_model(),
+            conversation_parameters: Default::default(),
+            user_message: Default::default(),
+        }
+    }
+}
+
+fn default_model() -> ModelId {
+    ModelId("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO".to_owned())
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -207,22 +229,6 @@ pub struct Conversation {
     pub messages: Vec<MessageId>,
 }
 
-impl Default for Conversation {
-    fn default() -> Self {
-        let now = Local::now();
-        Self {
-            id: ConversationId::new(),
-            model_id: None,
-            title: None,
-            timestamp_started: now,
-            timestamp_last_interaction: now,
-            conversation_parameters: Default::default(),
-            user_message: Default::default(),
-            messages: vec![],
-        }
-    }
-}
-
 #[derive(
     Clone,
     Debug,
@@ -248,6 +254,8 @@ impl From<&str> for ModelId {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Model {
     pub model_id: ModelId,
+    pub name: Option<String>,
+    #[serde(default)]
     pub chat_template: ChatTemplate,
 }
 
