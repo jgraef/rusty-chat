@@ -2,15 +2,9 @@ pub trait IsEmpty {
     fn is_empty(&self) -> bool;
 }
 
-impl IsEmpty for &str {
+impl<T: AsRef<str>> IsEmpty for T {
     fn is_empty(&self) -> bool {
-        str::is_empty(self)
-    }
-}
-
-impl IsEmpty for String {
-    fn is_empty(&self) -> bool {
-        String::is_empty(&self)
+        str::is_empty(self.as_ref())
     }
 }
 

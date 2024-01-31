@@ -1,16 +1,7 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 use leptos::{
-    component,
-    create_rw_signal,
-    view,
-    with,
-    Callback,
-    IntoView,
-    MaybeSignal,
-    RwSignal,
-    Signal,
-    SignalSet,
+    component, create_rw_signal, event_target_value, view, with, Callback, IntoView, MaybeSignal, RwSignal, Signal, SignalSet
 };
 use wasm_bindgen::JsCast;
 use web_sys::Event;
@@ -38,26 +29,17 @@ pub fn ConversationParametersInputGroup(
         callback: Option<Callback<Option<T>>>,
         event: &Event,
         set_invalid: Option<RwSignal<bool>>,
-    ) {
-        let element = event
-            .target()
-            .unwrap()
-            .unchecked_into::<web_sys::HtmlInputElement>();
-
-        let mut valid = element.check_validity();
-
-        let value = if valid {
-            let value = element.value();
-            let value = non_empty(value).map(|s| s.parse::<T>()).transpose();
-            if value.is_err() {
-                valid = false;
-            }
-            value.ok().flatten()
-        }
-        else {
-            None
-        };
-
+    )
+    where T::Err: Display,
+    {
+        let value = event_target_value(event);
+        let value = non_empty(value).map(|s| s.parse::<T>()).transpose();
+        let valid = if let Err(e) = &value {
+            log::debug!("parse failed: {e}");
+            false
+        } else { true };
+        let value = value.ok().flatten();
+        
         if let Some(callback) = callback {
             callback(value);
         }
@@ -97,7 +79,7 @@ pub fn ConversationParametersInputGroup(
             <div class="input-group me-3">
                 <span class="input-group-text">"Temperature"</span>
                 <input
-                    type="number"
+                    type="text"
                     class="form-control"
                     class:is-invalid=invalid_temperature
                     value=with!(|value| value.temperature)
@@ -107,7 +89,7 @@ pub fn ConversationParametersInputGroup(
             <div class="input-group me-3">
                 <span class="input-group-text">"Top K"</span>
                 <input
-                    type="number"
+                    type="text"
                     class="form-control"
                     class:is-invalid=invalid_top_k
                     value=with!(|value| value.top_k)
@@ -117,7 +99,7 @@ pub fn ConversationParametersInputGroup(
             <div class="input-group me-3">
                 <span class="input-group-text">"Top P"</span>
                 <input
-                    type="number"
+                    type="text"
                     class="form-control"
                     class:is-invalid=invalid_top_p
                     value=with!(|value| value.top_p)
@@ -126,7 +108,7 @@ pub fn ConversationParametersInputGroup(
             <div class="input-group me-3">
                 <span class="input-group-text">"Repetition penalty"</span>
                 <input
-                    type="number"
+                    type="text"
                     class="form-control"
                     class:is-invalid=invalid_repetition_penalty
                     value=with!(|value| value.repetition_penalty)
@@ -135,7 +117,7 @@ pub fn ConversationParametersInputGroup(
             <div class="input-group">
                 <span class="input-group-text">"Token limit"</span>
                 <input
-                    type="number"
+                    type="text"
                     class="form-control"
                     class:is-invalid=invalid_token_limit
                     value={with!(|value| value.token_limit)}

@@ -3,33 +3,15 @@ pub mod conversation_parameters;
 pub mod home;
 pub mod settings;
 
-use std::sync::Arc;
+use std::{collections::{BTreeMap, BTreeSet, HashMap}, sync::Arc};
 
-use chrono::Local;
+use chrono::{DateTime, Local};
 use futures::{
     stream::TryStreamExt,
     FutureExt,
 };
 use leptos::{
-    component,
-    create_memo,
-    create_rw_signal,
-    spawn_local,
-    view,
-    with,
-    Children,
-    DynAttrs,
-    For,
-    IntoView,
-    Oco,
-    RwSignal,
-    Signal,
-    SignalGet,
-    SignalGetUntracked,
-    SignalSet,
-    SignalUpdate,
-    SignalWith,
-    SignalWithUntracked,
+    component, create_memo, create_rw_signal, create_signal, spawn_local, view, with, Children, DynAttrs, For, IntoView, Oco, RwSignal, Signal, SignalGet, SignalGetUntracked, SignalSet, SignalUpdate, SignalWith, SignalWithUntracked
 };
 use leptos_meta::{
     provide_meta_context,
@@ -56,17 +38,7 @@ use self::{
     settings::SettingsRoutes,
 };
 use crate::state::{
-    use_conversation,
-    use_conversations,
-    use_message,
-    use_settings,
-    use_version,
-    AppVersion,
-    ConversationId,
-    Message,
-    MessageId,
-    Role,
-    StorageSignals,
+    use_conversation, use_conversations, use_message, use_settings, use_version, AppVersion, ConversationId, ConversationParameters, Message, MessageId, Role, StorageSignals
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -119,7 +91,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
     }));
 
     // add message to conversation and get model_id and prompt
-    let (model_id, prompt, start_response_with) = {
+    let (model_id, prompt, conversation_parameters) = {
         let StorageSignals {
             write: update_conversation,
             ..
@@ -167,16 +139,19 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                     model_id,
                     prompt,
                     conversation
-                        .conversation_parameters
-                        .start_response_with
-                        .clone(),
+                        .conversation_parameters.clone(),
+                        
                 )
             })
             .unwrap()
     };
 
     let mut model = api.text_generation(&model_id.0);
-    model.max_new_tokens = Some(2048);
+    model.max_new_tokens = Some(conversation_parameters.token_limit.unwrap_or(2000));
+    model.temparature = conversation_parameters.temperature.unwrap_or(1.0);
+    model.top_k = conversation_parameters.top_k;
+    model.top_p = conversation_parameters.top_p;
+    model.repetition_penalty = conversation_parameters.repetition_penalty;
 
     spawn_local(
         async move {
@@ -193,7 +168,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
             set_message.set(Some(Message {
                 id: message_id,
                 role: Role::Assitant,
-                text: start_response_with.unwrap_or_default(),
+                text: conversation_parameters.start_response_with.unwrap_or_default(),
                 timestamp: now,
             }));
 
@@ -313,24 +288,29 @@ pub fn App() -> impl IntoView {
         ..
     } = use_conversations();
 
-    let conversations = create_memo(move |_| {
+    #[derive(Copy, Clone, Debug, PartialEq)]
+    struct Item {
+        timestamp: DateTime<Local>,
+        id: ConversationId,
+    }
+
+    let sorted_items = create_memo(move |_| {
         with!(|conversations| {
-            let mut conversations = conversations
-                .iter()
-                .map(|&id| {
-                    let StorageSignals {
-                        read: conversation, ..
-                    } = use_conversation(id);
-                    (
-                        id,
-                        Signal::derive(move || with!(|conversation| conversation.title.clone())),
-                        with!(|conversation| conversation.timestamp_last_interaction),
-                    )
-                })
-                .collect::<Vec<_>>();
-            conversations.sort_by_cached_key(|(_, _, ts)| *ts);
-            conversations.reverse();
-            conversations
+            let mut sorted_items = vec![];
+
+            for id in conversations {
+                let StorageSignals { read: conversation, .. } = use_conversation(*id);
+                let timestamp = with!(|conversation| conversation.timestamp_last_interaction);
+                sorted_items.push(Item {
+                    id: *id,
+                    timestamp,
+                });
+            }
+
+            sorted_items.sort_by_cached_key(|item| item.timestamp);
+            sorted_items.reverse();
+
+            sorted_items
         })
     });
 
@@ -373,8 +353,7 @@ pub fn App() -> impl IntoView {
                         <small class="d-flex flex-row">
                             <button type="button" class="btn py-0 px-1 m-auto" style="color: white;" on:click=move |_| toggle_theme()>
                                 {move || {
-                                    let theme_icon = theme_icon.get();
-                                    view!{<BootstrapIcon icon=theme_icon />}
+                                    view!{<BootstrapIcon icon=theme_icon.get() />}
                                 }}
                             </button>
                             <a href="https://github.com/jgraef/rusty-chat" target="_blank" class="py-0 px-1 m-auto" style="color: white;">
@@ -385,14 +364,19 @@ pub fn App() -> impl IntoView {
                     <hr />
                     <ul class="nav nav-pills flex-column mb-auto">
                         <For
-                            each=conversations
-                            key=|(id, _, _)| *id
-                            children=move |(id, title, _)| {
+                            each=sorted_items
+                            key=|item| item.id
+                            children=move |item| {
+                                // note: i can't make this work, if we put the title signal into the memo.
+                                let StorageSignals { read: conversation, .. } = use_conversation(item.id);
+                                let title = Signal::derive(move || with!(|conversation| conversation.title.clone()));
+
                                 view! {
-                                    <NavLink href=format!("/conversation/{id}")>
+                                    <NavLink href=format!("/conversation/{}", item.id)>
                                         <div class="text-nowrap text-truncate" style="width: 200px">
                                             {move || {
-                                                if let Some(title) = title.get() {
+                                                let title = title.get();
+                                                if let Some(title) = title {
                                                     view!{{title}}.into_view()
                                                 }
                                                 else {

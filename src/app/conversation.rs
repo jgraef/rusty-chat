@@ -3,7 +3,7 @@ use leptos::{
     create_node_ref,
     create_rw_signal,
     event_target_value,
-    html::Div,
+    html::{Div, Input},
     update,
     view,
     with,
@@ -32,8 +32,7 @@ use crate::{
         push_user_message,
         BootstrapIcon,
         Context,
-    },
-    state::{
+    }, state::{
         delete_storage,
         use_conversation,
         use_conversations,
@@ -44,45 +43,12 @@ use crate::{
         Role,
         StorageKey,
         StorageSignals,
-    },
+    }, utils::non_empty
 };
 
 #[component]
 pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoView {
     let Context { is_loading, .. } = expect_context();
-
-    let confirm_delete = create_rw_signal(false);
-
-    let delete_button_clicked = move |_| {
-        if confirm_delete.get() {
-            log::debug!("delete chat: {}", id.get_untracked());
-
-            use_navigate()("/", Default::default());
-
-            let id = id.get_untracked();
-
-            let StorageSignals {
-                write: conversations,
-                ..
-            } = use_conversations();
-            update!(|conversations| {
-                conversations.remove(&id);
-            });
-
-            let conversation = use_conversation(id);
-            let message_ids = conversation
-                .read
-                .with(|conversation| conversation.messages.clone());
-            conversation.delete();
-
-            for message_id in message_ids {
-                delete_storage(StorageKey::Message(message_id));
-            }
-        }
-        else {
-            confirm_delete.set(true);
-        }
-    };
 
     // auto-scrolling
     // this is done by having an empty div at the bottom of the page (right before
@@ -128,10 +94,13 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             let on_submit = move |event: SubmitEvent| {
                 event.prevent_default();
 
-                let Some((user_message, id)) = update_conversation.try_update(|conversation| (
-                    std::mem::replace(&mut conversation.user_message, Default::default()),
-                    conversation.id,
-                )) else { return; };
+                let Some((user_message, id)) = update_conversation.try_update(|conversation| {
+                    let user_message = non_empty(std::mem::replace(&mut conversation.user_message, Default::default()))?;
+                    Some((user_message, conversation.id))
+                }).flatten()
+                else {
+                    return;
+                };
 
                 push_user_message(id, user_message);
             };
@@ -139,9 +108,11 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             let title = Signal::derive(move || {
                 with!(|conversation| conversation.title.clone())
             });
+            
             let model_id = Signal::derive(move || {
                 with!(|conversation| conversation.model_id.clone().expect("no model"))
             });
+            
             let hide_system_prompt_input = Signal::derive(move || {
                 with!(|settings, model_id| {
                     !settings
@@ -153,14 +124,94 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 })
             });
 
-            // FIXME this re-renders on any UI input :/
-            log::debug!("render conversation");
+            let disable_send = Signal::derive(move || {
+                is_loading.get() || with!(|conversation| conversation.user_message.is_empty())
+            });
+
+            let edit_title = create_rw_signal(false);
+
+            log::debug!("render conversation: {}", id.get_untracked());
 
             view! {
-                <div class="d-flex flex-row px-4 pt-2 shadow-sm w-100">
-                    <h4>
-                        {title}
-                    </h4>
+                // delete modal
+                <div class="modal" id="conversation_delete_modal_modal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">"Delete conversation"</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p>"Confirm to delete this conversation."</p>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">"Cancel"</button>
+                                <button
+                                    type="button"
+                                    class="btn btn-danger"
+                                    data-bs-dismiss="modal"
+                                    on:click=move |_| {
+                                        let id = id.get_untracked();
+
+                                        log::warn!("deleting conversation: {}", id);
+
+                                        use_navigate()("/", Default::default());
+
+                                        let StorageSignals {
+                                            write: conversations,
+                                            ..
+                                        } = use_conversations();
+                                        update!(|conversations| {
+                                            conversations.remove(&id);
+                                        });
+
+                                        let conversation = use_conversation(id);
+                                        let message_ids = conversation
+                                            .read
+                                            .with(|conversation| conversation.messages.clone());
+                                        conversation.delete();
+
+                                        for message_id in message_ids {
+                                            delete_storage(StorageKey::Message(message_id));
+                                        }
+                                    }
+                                >
+                                    "Delete"
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                // header
+                <div class="d-flex flex-row px-4 pt-3 shadow-sm w-100">
+                    <div class="d-flex flex-row">
+                        {move || if edit_title.get() {
+                            let edit_title_input = create_node_ref::<Input>();
+
+                            view!{
+                                <form on:submit=move |e: SubmitEvent| {
+                                    e.prevent_default();
+                                    let Some(edit_title_input) = edit_title_input.get() else { return; };
+                                    let Some(new_title) = non_empty(edit_title_input.value()) else { return; };
+                                    update_conversation.update(move |conversation| conversation.title = Some(new_title));
+                                    edit_title.set(false);
+                                }>
+                                    <input type="text" class="form-control" placeholder="Conversation title" value=title node_ref=edit_title_input />
+                                </form>
+                            }.into_view()
+                        }
+                        else {
+                            view!{
+                                <h4>
+                                    {title}
+                                </h4>
+                                <span href="#" class="ms-1 mt-1 link-secondary" style="cursor: pointer;" on:click=move |_| edit_title.set(true)>
+                                    <BootstrapIcon icon="pencil-square" />
+                                </span>
+                            }.into_view()
+                        }}
+                    </div>
                     <h6 class="mt-auto ms-4">
                         <span class="badge bg-secondary">
                             {move || with!(|model_id| view!{
@@ -174,16 +225,17 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                     <div class="d-flex flex-row ms-auto pb-2">
                         <button
                             type="button"
-                            class="btn btn-sm"
+                            class="btn btn-sm btn-outline-danger"
                             style="height: 100%;"
-                            class:btn-outline-danger=move || !confirm_delete.get()
-                            class:btn-danger=confirm_delete
-                            on:click=delete_button_clicked
+                            data-bs-toggle="modal"
+                            data-bs-target="#conversation_delete_modal_modal"
                         >
                             <BootstrapIcon icon="trash-fill" />
                         </button>
                     </div>
                 </div>
+
+                // messages
                 <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100">
                     <For
                         each=move || with!(|conversation| conversation.messages.clone())
@@ -197,6 +249,8 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                     <div class="d-flex w-100 h-0" node_ref=scroll_target></div>
                     <div class="d-flex w-100" style="min-height: 10em;"></div>
                 </div>
+
+                // message form
                 <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
                     <div class="collapse pb-2" id="sendMessageAdvancedContainer">
                         <ConversationParametersInputGroup
@@ -222,12 +276,12 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                                 update_conversation.update(|conversation| conversation.user_message = user_message);
                             }
                         />
-                        <button class="btn btn-outline-secondary" type="submit" disabled=is_loading>
+                        <button class="btn btn-outline-secondary" type="submit" disabled=disable_send>
                             {move || {
                                 if is_loading.get() {
                                     view! {
                                         <div class="spinner-grow spinner-grow-sm" role="status">
-                                            <span class="visually-hidden">"Loading..."</span>
+                                            <span class="visually-hidden">"Generating..."</span>
                                         </div>
                                     }.into_view()
                                 }
@@ -237,7 +291,6 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             }}
                         </button>
                         <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#sendMessageAdvancedContainer"><BootstrapIcon icon="three-dots" /></button>
-                        //<button class="btn btn-outline-secondary" type="button" on:click=|_|{}><BootstrapIcon icon="gear" /></button>
                     </div>
                 </form>
             }
