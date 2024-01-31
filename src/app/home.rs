@@ -156,7 +156,7 @@ pub fn Home() -> impl IntoView {
         <div class="d-flex flex-column h-100 w-100">
             <div class="d-flex flex-column flex-grow-1">
                 // TODO: say hello to the user
-                <div class="d-flex flex-column w-50 m-auto align-middle bg-secondary-subtle rounded-4 p-4">
+                <div class="d-flex flex-column w-50 m-auto bg-secondary-subtle rounded-4 p-4">
                     <h4>"Examples"</h4>
                     {
                         examples.into_iter().map(|example| {

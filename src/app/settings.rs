@@ -1,10 +1,13 @@
 use leptos::{
     component,
     create_node_ref,
+    event_target_checked,
     html::Input,
     view,
+    with,
     Children,
     IntoView,
+    SignalUpdate,
 };
 use leptos_router::{
     Outlet,
@@ -20,7 +23,11 @@ use crate::{
         expect_context,
         Context,
     },
-    state::clear_storage,
+    state::{
+        clear_storage,
+        use_settings,
+        StorageSignals,
+    },
 };
 
 #[component(transparent)]
@@ -49,6 +56,8 @@ pub fn Tab<H: ToHref + 'static>(href: H, children: Children) -> impl IntoView {
 
 #[component]
 fn Settings() -> impl IntoView {
+    let StorageSignals { read: settings, .. } = use_settings();
+
     view! {
         <div class="d-flex flex-row px-4 pt-3 w-100">
             <h4>
@@ -60,7 +69,12 @@ fn Settings() -> impl IntoView {
             <Tab href="/settings/general">"General"</Tab>
             <Tab href="/settings/models">"Models"</Tab>
             <Tab href="/settings/backends">"Backends"</Tab>
-            <Tab href="/settings/debug">"Debug"</Tab>
+            {move || {
+                with!(|settings| settings.show_debug_tab)
+                    .then(|| view!{
+                        <Tab href="/settings/debug">"Debug"</Tab>
+                    })
+            }}
         </ul>
         <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
             <Outlet />
@@ -92,6 +106,12 @@ fn ModelsTab() -> impl IntoView {
 #[component]
 fn DebugTab() -> impl IntoView {
     let Context { errors, .. } = expect_context();
+
+    let StorageSignals {
+        read: settings,
+        write: update_settings,
+        ..
+    } = use_settings();
 
     let emit_error_input = create_node_ref::<Input>();
 
@@ -129,15 +149,39 @@ fn DebugTab() -> impl IntoView {
                 <input class="form-check-input" type="checkbox" role="switch" id="settings_general_dark_mode_switch" />
                 <label class="form-check-label" for="settings_general_dark_mode_switch">"Use dark mode"</label>
             </div>*/
-            <button
-                type="button"
-                class="btn btn-danger mb-3"
-                data-bs-toggle="modal"
-                data-bs-target="#settings_general_reset_modal"
-            >
-                <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
-                "Reset app"
-            </button>
+
+            <div class="form-check form-switch mb-2">
+                <input
+                    class="form-check-input"
+                    type="checkbox"
+                    role="switch"
+                    checked=move || with!(|settings| settings.show_debug_tab)
+                    on:input=move |event| update_settings.update(move |settings| settings.show_debug_tab = event_target_checked(&event))
+                />
+                <label class="form-check-label">"Show debug tab"</label>
+            </div>
+
+            <div class="d-flex flex-row mb-3">
+                <button
+                    type="button"
+                    class="btn btn-danger me-3"
+                    data-bs-toggle="modal"
+                    data-bs-target="#settings_general_reset_modal"
+                >
+                    <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
+                    "Reset app"
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-danger me-3"
+                    on:click=move |_| {
+                        update_settings.update(|settings| settings.reset_models());
+                    }
+                >
+                    <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
+                    "Reset models"
+                </button>
+            </div>
             <div class="input-group mb-3">
                 <input type="text" class="form-control" placeholder="Error message" node_ref=emit_error_input />
                 <button

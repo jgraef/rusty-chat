@@ -456,36 +456,38 @@ pub fn App() -> impl IntoView {
                         </small>
                     </div>
                     <hr />
-                    <ul class="nav nav-pills flex-column mb-auto">
-                        <For
-                            each=sorted_items
-                            key=|item| item.id
-                            children=move |item| {
-                                // note: i can't make this work, if we put the title signal into the memo.
-                                let StorageSignals { read: conversation, .. } = use_conversation(item.id);
-                                let title = Signal::derive(move || with!(|conversation| conversation.title.clone()));
+                    <div class="d-flex flex-column flex-grow-1 overflow-y-scroll">
+                        <ul class="d-flex flex-column nav nav-pills mb-auto">
+                            <For
+                                each=sorted_items
+                                key=|item| item.id
+                                children=move |item| {
+                                    // note: i can't make this work, if we put the title signal into the memo.
+                                    let StorageSignals { read: conversation, .. } = use_conversation(item.id);
+                                    let title = Signal::derive(move || with!(|conversation| conversation.title.clone()));
 
-                                view! {
-                                    <NavLink href=format!("/conversation/{}", item.id)>
-                                        <div class="text-nowrap text-truncate" style="width: 200px">
-                                            {move || {
-                                                let title = title.get();
-                                                if let Some(title) = title {
-                                                    view!{{title}}.into_view()
-                                                }
-                                                else {
-                                                    view!{
-                                                        <span class="me-2"><BootstrapIcon icon="question-lg" /></span>
-                                                        "Untitled"
-                                                    }.into_view()
-                                                }
-                                            }}
-                                        </div>
-                                    </NavLink>
+                                    view! {
+                                        <NavLink href=format!("/conversation/{}", item.id)>
+                                            <div class="text-nowrap text-truncate" style="width: 200px">
+                                                {move || {
+                                                    let title = title.get();
+                                                    if let Some(title) = title {
+                                                        view!{{title}}.into_view()
+                                                    }
+                                                    else {
+                                                        view!{
+                                                            <span class="me-2"><BootstrapIcon icon="question-lg" /></span>
+                                                            "Untitled"
+                                                        }.into_view()
+                                                    }
+                                                }}
+                                            </div>
+                                        </NavLink>
+                                    }
                                 }
-                            }
-                        />
-                    </ul>
+                            />
+                        </ul>
+                    </div>
                     <hr />
                     <ul class="nav nav-pills flex-column">
                         <NavLink href="/settings">
@@ -498,14 +500,16 @@ pub fn App() -> impl IntoView {
                     <div class="d-flex flex-column flex-grow-1 h-100 position-relative" style="max-height: 100vh">
                         <div class="z-1 position-absolute top-0 start-50 translate-middle-x w-50">
                             <div
-                                class="alert alert-danger alert-dismissible fade show mx-4 mt-2"
+                                class="alert alert-danger alert-dismissible fade show mt-4"
                                 class:visually-hidden=move || errors.0.with(|errors| errors.is_empty())
                                 role="alert"
                             >
+                                <h5>"Error"</h5>
                                 <For
                                     each=move || errors.0.get()
                                     key=|error| error.id
                                     children=|error| view!{
+                                        <hr />
                                         <p>
                                             <span class="me-2"><BootstrapIcon icon="exclamation-circle" /></span>
                                             {error.message}

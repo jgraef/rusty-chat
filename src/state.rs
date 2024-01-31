@@ -120,10 +120,12 @@ pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub models: BTreeMap<ModelId, Model>,
+    #[serde(default)]
+    pub show_debug_tab: bool,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
+impl Settings {
+    pub fn reset_models(&mut self) {
         #[derive(Debug, Deserialize)]
         struct DefaultModels {
             model: Vec<Model>,
@@ -132,13 +134,22 @@ impl Default for Settings {
         let default_models: DefaultModels =
             toml::from_str(include_str!("../default_models.toml")).unwrap();
 
-        let models = default_models
+        self.models = default_models
             .model
             .into_iter()
             .map(|model| (model.model_id.clone(), model))
             .collect();
+    }
+}
 
-        Self { models }
+impl Default for Settings {
+    fn default() -> Self {
+        let mut this = Self {
+            models: BTreeMap::new(),
+            show_debug_tab: false,
+        };
+        this.reset_models();
+        this
     }
 }
 
