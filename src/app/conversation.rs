@@ -3,7 +3,10 @@ use leptos::{
     create_node_ref,
     create_rw_signal,
     event_target_value,
-    html::{Div, Input},
+    html::{
+        Div,
+        Input,
+    },
     update,
     view,
     with,
@@ -32,7 +35,8 @@ use crate::{
         push_user_message,
         BootstrapIcon,
         Context,
-    }, state::{
+    },
+    state::{
         delete_storage,
         use_conversation,
         use_conversations,
@@ -43,7 +47,8 @@ use crate::{
         Role,
         StorageKey,
         StorageSignals,
-    }, utils::non_empty
+    },
+    utils::non_empty,
 };
 
 #[component]
@@ -108,11 +113,11 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
             let title = Signal::derive(move || {
                 with!(|conversation| conversation.title.clone())
             });
-            
+
             let model_id = Signal::derive(move || {
                 with!(|conversation| conversation.model_id.clone().expect("no model"))
             });
-            
+
             let hide_system_prompt_input = Signal::derive(move || {
                 with!(|settings, model_id| {
                     !settings

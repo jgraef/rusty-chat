@@ -1,9 +1,21 @@
-use std::{fmt::Display, str::FromStr};
+use std::{
+    fmt::Display,
+    str::FromStr,
+};
 
 use leptos::{
-    component, create_rw_signal, event_target_value, view, with, Callback, IntoView, MaybeSignal, RwSignal, Signal, SignalSet
+    component,
+    create_rw_signal,
+    event_target_value,
+    view,
+    with,
+    Callback,
+    IntoView,
+    MaybeSignal,
+    RwSignal,
+    Signal,
+    SignalSet,
 };
-use wasm_bindgen::JsCast;
 use web_sys::Event;
 
 use crate::{
@@ -29,17 +41,20 @@ pub fn ConversationParametersInputGroup(
         callback: Option<Callback<Option<T>>>,
         event: &Event,
         set_invalid: Option<RwSignal<bool>>,
-    )
-    where T::Err: Display,
+    ) where
+        T::Err: Display,
     {
         let value = event_target_value(event);
         let value = non_empty(value).map(|s| s.parse::<T>()).transpose();
         let valid = if let Err(e) = &value {
             log::debug!("parse failed: {e}");
             false
-        } else { true };
+        }
+        else {
+            true
+        };
         let value = value.ok().flatten();
-        
+
         if let Some(callback) = callback {
             callback(value);
         }

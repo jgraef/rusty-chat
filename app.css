@@ -8,7 +8,12 @@
 
 .sidebar {
     width: 280px;
-    background: var(--bs-gray-800);
+    background: #1f033f;
+    background-image: var(--bs-gradient);
+}
+
+.sidebar .nav-link.active {
+    background:  #16012e;
 }
 
 .main {
@@ -21,12 +26,10 @@
 
 [data-bs-theme=light] .message-background {
     background-color: var(--bs-gray-100);
-    background-image: var(--bs-gradient);
 }
 
 [data-bs-theme=dark] .message-background {
     background-color: var(--bs-gray-800);
-    background-image: var(--bs-gradient);
 }
 
 .markdown pre {

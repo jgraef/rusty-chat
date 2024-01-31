@@ -3,15 +3,36 @@ pub mod conversation_parameters;
 pub mod home;
 pub mod settings;
 
-use std::{collections::{BTreeMap, BTreeSet, HashMap}, sync::Arc};
+use std::sync::Arc;
 
-use chrono::{DateTime, Local};
+use chrono::{
+    DateTime,
+    Local,
+};
 use futures::{
     stream::TryStreamExt,
     FutureExt,
 };
 use leptos::{
-    component, create_memo, create_rw_signal, create_signal, spawn_local, view, with, Children, DynAttrs, For, IntoView, Oco, RwSignal, Signal, SignalGet, SignalGetUntracked, SignalSet, SignalUpdate, SignalWith, SignalWithUntracked
+    component,
+    create_memo,
+    create_rw_signal,
+    spawn_local,
+    view,
+    with,
+    Children,
+    DynAttrs,
+    For,
+    IntoView,
+    Oco,
+    RwSignal,
+    Signal,
+    SignalGet,
+    SignalGetUntracked,
+    SignalSet,
+    SignalUpdate,
+    SignalWith,
+    SignalWithUntracked,
 };
 use leptos_meta::{
     provide_meta_context,
@@ -38,7 +59,17 @@ use self::{
     settings::SettingsRoutes,
 };
 use crate::state::{
-    use_conversation, use_conversations, use_message, use_settings, use_version, AppVersion, ConversationId, ConversationParameters, Message, MessageId, Role, StorageSignals
+    use_conversation,
+    use_conversations,
+    use_message,
+    use_settings,
+    use_version,
+    AppVersion,
+    ConversationId,
+    Message,
+    MessageId,
+    Role,
+    StorageSignals,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -138,9 +169,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                 (
                     model_id,
                     prompt,
-                    conversation
-                        .conversation_parameters.clone(),
-                        
+                    conversation.conversation_parameters.clone(),
                 )
             })
             .unwrap()
@@ -168,7 +197,9 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
             set_message.set(Some(Message {
                 id: message_id,
                 role: Role::Assitant,
-                text: conversation_parameters.start_response_with.unwrap_or_default(),
+                text: conversation_parameters
+                    .start_response_with
+                    .unwrap_or_default(),
                 timestamp: now,
             }));
 
@@ -299,12 +330,11 @@ pub fn App() -> impl IntoView {
             let mut sorted_items = vec![];
 
             for id in conversations {
-                let StorageSignals { read: conversation, .. } = use_conversation(*id);
+                let StorageSignals {
+                    read: conversation, ..
+                } = use_conversation(*id);
                 let timestamp = with!(|conversation| conversation.timestamp_last_interaction);
-                sorted_items.push(Item {
-                    id: *id,
-                    timestamp,
-                });
+                sorted_items.push(Item { id: *id, timestamp });
             }
 
             sorted_items.sort_by_cached_key(|item| item.timestamp);

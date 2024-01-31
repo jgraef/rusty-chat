@@ -1,6 +1,22 @@
 use chrono::Local;
 use leptos::{
-    component, create_node_ref, ev::SubmitEvent, event_target_value, expect_context, html::Input, view, with, For, IntoView, Signal, SignalGet, SignalGetUntracked, SignalSet, SignalUpdate, SignalWith, SignalWithUntracked
+    component,
+    create_node_ref,
+    ev::SubmitEvent,
+    event_target_value,
+    expect_context,
+    html::Input,
+    view,
+    with,
+    For,
+    IntoView,
+    Signal,
+    SignalGet,
+    SignalGetUntracked,
+    SignalSet,
+    SignalUpdate,
+    SignalWith,
+    SignalWithUntracked,
 };
 use leptos_router::use_navigate;
 
@@ -11,21 +27,24 @@ use super::{
     BootstrapIcon,
     Context,
 };
-use crate::{state::{
-    use_conversation,
-    use_conversations,
-    use_home,
-    use_settings,
-    Conversation,
-    ConversationId,
-    ModelId,
-    StorageSignals,
-}, utils::non_empty};
+use crate::{
+    state::{
+        use_conversation,
+        use_conversations,
+        use_home,
+        use_settings,
+        Conversation,
+        ConversationId,
+        ModelId,
+        StorageSignals,
+    },
+    utils::non_empty,
+};
 
 #[component]
 pub fn Home() -> impl IntoView {
     let Context { is_loading, .. } = expect_context();
-    
+
     let user_message_input = create_node_ref::<Input>();
 
     let StorageSignals { read: settings, .. } = use_settings();
@@ -69,18 +88,7 @@ pub fn Home() -> impl IntoView {
         });
     };
 
-    let on_submit = move |event: SubmitEvent| {
-        event.prevent_default();
-
-        let Some((user_message, conversation_parameters)) = update_home.try_update(|home| {
-            let user_message = non_empty(std::mem::replace(&mut home.user_message, Default::default()))?;
-            let conversation_parameters = home.conversation_parameters.clone();
-            Some((user_message, conversation_parameters))
-        }).flatten()
-        else {
-            return;
-        };
-
+    let start_chat = move |user_message: String, conversation_parameters| {
         let now = Local::now();
 
         let conversation_id = ConversationId::new();
@@ -114,14 +122,58 @@ pub fn Home() -> impl IntoView {
         );
     };
 
-    let disable_send = Signal::derive(move || {
-        is_loading.get() || with!(|home| home.user_message.is_empty())
-    });
+    let on_submit = move |event: SubmitEvent| {
+        event.prevent_default();
+
+        let Some((user_message, conversation_parameters)) = update_home
+            .try_update(|home| {
+                let user_message = non_empty(std::mem::replace(
+                    &mut home.user_message,
+                    Default::default(),
+                ))?;
+                let conversation_parameters = home.conversation_parameters.clone();
+                Some((user_message, conversation_parameters))
+            })
+            .flatten()
+        else {
+            return;
+        };
+
+        start_chat(user_message, conversation_parameters);
+    };
+
+    let disable_send =
+        Signal::derive(move || is_loading.get() || with!(|home| home.user_message.is_empty()));
+
+    let examples = [
+        "Write a poem about AI.",
+        "Write a Hello World in Rust.",
+        "Explain algorithmic entropy.",
+    ];
 
     view! {
         <div class="d-flex flex-column h-100 w-100">
-            <div class="mb-auto">
+            <div class="d-flex flex-column flex-grow-1">
                 // TODO: say hello to the user
+                <div class="d-flex flex-column w-50 m-auto align-middle bg-secondary-subtle rounded-4 p-4">
+                    <h4>"Examples"</h4>
+                    {
+                        examples.into_iter().map(|example| {
+                            view!{
+                                <button
+                                    type="button"
+                                    class="btn btn-outline-secondary p-2 mt-2 mx-4"
+                                    on:click=move |_| {
+                                        log::debug!("example: {example}");
+                                        start_chat(example.to_owned(), Default::default());
+                                    }
+                                >
+                                    {example}
+                                </button>
+                            }
+                        }).collect::<Vec<_>>()
+                    }
+                </div>
             </div>
             <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
                 <div class="collapse pb-2" id="startChatAdvancedContainer">
