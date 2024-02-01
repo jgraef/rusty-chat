@@ -25,6 +25,22 @@
     overflow-y: hidden;
 }
 
+[data-bs-theme=light] .welcome {
+    color: black;
+}
+
+[data-bs-theme=light] .welcome .btn {
+    color: black;
+}
+
+[data-bs-theme=dark] .welcome {
+    color: white;
+}
+
+[data-bs-theme=dark] .welcome .btn {
+    color: white;
+}
+
 [data-bs-theme=light] .message {
     background-color: var(--bs-gray-100);
 }

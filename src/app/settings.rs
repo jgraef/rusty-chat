@@ -76,30 +76,34 @@ fn Settings() -> impl IntoView {
                     })
             }}
         </ul>
-        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
-            <Outlet />
-        </div>
+        <Outlet />
     }
 }
 
 #[component]
 fn GeneralTab() -> impl IntoView {
     view! {
-        "General tab"
+        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
+            "General tab"
+        </div>
     }
 }
 
 #[component]
 fn BackendsTab() -> impl IntoView {
     view! {
-        "Backends tab"
+        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
+            "Backends tab"
+        </div>
     }
 }
 
 #[component]
 fn ModelsTab() -> impl IntoView {
     view! {
-        "Models tab"
+        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
+            "Models tab"
+        </div>
     }
 }
 
@@ -144,12 +148,7 @@ fn DebugTab() -> impl IntoView {
             </div>
         </div>
 
-        <form on:submit=|e| e.prevent_default()>
-            /*<div class="form-check form-switch mb-2">
-                <input class="form-check-input" type="checkbox" role="switch" id="settings_general_dark_mode_switch" />
-                <label class="form-check-label" for="settings_general_dark_mode_switch">"Use dark mode"</label>
-            </div>*/
-
+        <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
             <div class="form-check form-switch mb-2">
                 <input
                     class="form-check-input"
@@ -182,21 +181,30 @@ fn DebugTab() -> impl IntoView {
                     "Reset settings"
                 </button>
             </div>
-            <div class="input-group mb-3">
-                <input type="text" class="form-control" placeholder="Error message" node_ref=emit_error_input />
-                <button
-                    class="btn btn-primary"
-                    type="button"
-                    on:click=move |_| {
-                        let message = emit_error_input.get_untracked().unwrap().value();
-                        if !message.is_empty() {
-                            errors.push(message);
-                        }
+            <form 
+                class="w-100"
+                on:submit=move |e| {
+                    e.prevent_default();
+
+                    let message = emit_error_input.get_untracked().unwrap().value();
+                    if !message.is_empty() {
+                        errors.push(message);
                     }
-                >
-                    "Emit error"
-                </button>
-            </div>
-        </form>
+                }
+            >
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" placeholder="Error message" node_ref=emit_error_input />
+                    <button
+                        class="btn btn-primary"
+                        type="submit"
+                        on:click=move |_| {
+                            
+                        }
+                    >
+                        "Emit error"
+                    </button>    
+                </div>
+            </form>
+        </div>
     }
 }

@@ -477,6 +477,7 @@ pub fn App() -> impl IntoView {
                     <div class="d-flex flex-row">
                         <A class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
                             <span class="fs-4">"🦀 RustyChat"</span>
+                            <span class="badge bg-dark mt-auto ms-1">"beta"</span>
                         </A>
                         <small class="d-flex flex-row">
                             <button type="button" class="btn py-0 px-1 m-auto" style="color: white;" on:click=move |_| toggle_theme()>

@@ -1,4 +1,5 @@
 use chrono::Local;
+use lazy_static::lazy_static;
 use leptos::{
     component,
     create_node_ref,
@@ -20,6 +21,7 @@ use leptos::{
     SignalWithUntracked,
 };
 use leptos_router::use_navigate;
+use serde::Deserialize;
 
 use super::{
     conversation::ConversationParametersInputGroup,
@@ -41,6 +43,18 @@ use crate::{
     },
     utils::non_empty,
 };
+
+lazy_static!{
+    static ref EXAMPLES: Vec<String> = {
+        #[derive(Debug, Deserialize)]
+        struct Examples {
+            examples: Vec<String>,
+        }
+
+        let examples: Examples = toml::from_str(include_str!("../../examples.toml")).expect("invalid examples.toml");
+        examples.examples
+    };
+}
 
 #[component]
 pub fn Home() -> impl IntoView {
@@ -139,34 +153,41 @@ pub fn Home() -> impl IntoView {
     let disable_send =
         Signal::derive(move || is_loading.get() || with!(|home| home.user_message.is_empty()));
 
-    let examples = [
-        "Write a poem about AI.",
-        "Write a Hello World in Rust.",
-        "Explain algorithmic entropy.",
-    ];
-
     view! {
         <div class="d-flex flex-column h-100 w-100">
             <div class="d-flex flex-column flex-grow-1">
-                // TODO: say hello to the user
-                <div class="d-flex flex-column w-50 m-auto bg-secondary-subtle rounded-4 p-4">
-                    <h4>"Examples"</h4>
-                    {
-                        examples.into_iter().map(|example| {
-                            view!{
-                                <button
-                                    type="button"
-                                    class="btn btn-outline-secondary p-2 mt-2 mx-4"
-                                    on:click=move |_| {
-                                        log::debug!("example: {example}");
-                                        start_chat(example.to_owned(), Default::default());
-                                    }
-                                >
-                                    {example}
-                                </button>
-                            }
-                        }).collect_view()
-                    }
+                <div class="d-flex flex-column w-50 m-auto welcome">
+                    <div class="d-flex flex-column mb-4">
+                        <h4>"Welcome!"</h4>
+                        <p class="mt-2 mx-4">
+                            "Welcome to RustyChat! RustyChat is a client-only webapp to talk to any model that is available through the free"
+                            <a href="https://huggingface.co/" target="_blank" class="text-decoration-none ps-1">"🤗"</a>
+                            <a href="https://huggingface.co/" target="_blank" class="pe-1">
+                                "Hugging Face"
+                                <BootstrapIcon icon="link-45deg" />
+                            </a>
+                            "API. All your data is kept stored here in your browser. Chat away!"
+                        </p>
+                    </div>
+                    <div class="d-flex flex-column">
+                        <h4>"Examples"</h4>
+                        {
+                            EXAMPLES.iter().map(|example| {
+                                view!{
+                                    <button
+                                        type="button"
+                                        class="btn btn-outline-secondary p-2 mt-2 mx-4"
+                                        on:click=move |_| {
+                                            log::debug!("example: {example}");
+                                            start_chat(example.to_owned(), Default::default());
+                                        }
+                                    >
+                                        {example}
+                                    </button>
+                                }
+                            }).collect_view()
+                        }
+                    </div>
                 </div>
             </div>
             <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
