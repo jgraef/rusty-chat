@@ -26,7 +26,7 @@ Or run
 trunk serve
 ```
 
-start a local webserver hosting the page.
+to start a local webserver hosting the page.
 
 
 
