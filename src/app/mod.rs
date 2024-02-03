@@ -62,17 +62,20 @@ use self::{
     home::Home,
     settings::SettingsRoutes,
 };
-use crate::state::{
-    use_conversation,
-    use_conversations,
-    use_message,
-    use_settings,
-    use_version,
-    ConversationId,
-    Message,
-    MessageId,
-    Role,
-    StorageSignals,
+use crate::{
+    state::{
+        use_conversation,
+        use_conversations,
+        use_message,
+        use_settings,
+        use_version,
+        ConversationId,
+        Message,
+        MessageId,
+        Role,
+        StorageSignals,
+    },
+    GITHUB_PAGE,
 };
 
 lazy_static! {
@@ -484,7 +487,7 @@ pub fn App() -> impl IntoView {
                                     view!{<BootstrapIcon icon=theme_icon.get() />}
                                 }}
                             </button>
-                            <a href="https://github.com/jgraef/rusty-chat" target="_blank" class="py-0 px-1 m-auto" style="color: white;">
+                            <a href=GITHUB_PAGE target="_blank" class="py-0 px-1 m-auto" style="color: white;">
                                 <BootstrapIcon icon="github" />
                             </a>
                         </small>

@@ -51,6 +51,7 @@ use crate::{
         StorageSignals,
     },
     utils::non_empty,
+    GITHUB_ISSUES_PAGE,
 };
 
 lazy_static! {
@@ -284,6 +285,14 @@ pub fn Home() -> impl IntoView {
                             <A href="/settings/models">
                                 "Settings"
                             </A>
+                            "."
+                        </p>
+                        <p class="mt-2 mx-4">
+                            "You found a bug? Please let us know on "
+                            <a href=GITHUB_ISSUES_PAGE target="_blank">
+                                "GitHub"
+                                <BootstrapIcon icon="link-45deg" />
+                            </a>
                             "."
                         </p>
                     </div>

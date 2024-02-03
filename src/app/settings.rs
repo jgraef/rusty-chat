@@ -165,7 +165,7 @@ fn ModelsTab() -> impl IntoView {
         AlreadyExists,
         #[strum(message = "Model not found")]
         NotFound,
-        #[strum(message = "Model not loadable")]
+        #[strum(message = "Model not available in the free API")]
         NotLoadable,
         #[strum(message = "Inference test failed")]
         InferenceFailed,
@@ -254,8 +254,14 @@ fn ModelsTab() -> impl IntoView {
                     // some models are in theory loadable but will always fail to do inference. so
                     // we check if we can do inference
 
+                    log::debug!("testing inference...");
                     model.max_new_tokens = Some(10);
-                    let inference_worked = model.generate("Hello!").await.is_ok();
+                    let inference_worked = model
+                        .generate("Hello!")
+                        .await
+                        .map_err(|error| log::debug!("inference error: {error}"))
+                        .is_ok();
+                    log::debug!("inference_worked = {inference_worked:?}");
 
                     if inference_worked {
                         // yay!
@@ -286,6 +292,7 @@ fn ModelsTab() -> impl IntoView {
 
             if model_id.is_empty() {
                 model_id_state.set(ModelIdState::default());
+                model_search_results.set(vec![]);
                 return;
             }
 
@@ -470,7 +477,7 @@ fn ModelsTab() -> impl IntoView {
                     on:click=move |_| select_model(SelectedModel::New)
                 >
                     <span class="me-1"><BootstrapIcon icon="plus-circle-fill" /></span>
-                    "New model"
+                    "Add model"
                 </button>
                 <ul class="list-group overflow-y-scroll mh-100">
                     <For
@@ -697,12 +704,7 @@ fn ModelsTab() -> impl IntoView {
                         on:click=move |_| save_model()
                     >
                         <span class="me-1"><BootstrapIcon icon="floppy-fill" /></span>
-                        {move || with!(|selected_model| {
-                            match selected_model {
-                                SelectedModel::Edit(_) => "Save changes",
-                                SelectedModel::New => "Add model",
-                            }
-                        })}
+                        "Save changes"
                     </button>
                 </div>
             </form>

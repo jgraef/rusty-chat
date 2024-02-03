@@ -137,6 +137,17 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 with!(|conversation| conversation.as_ref().and_then(|conversation| conversation.model_id.clone()))
             });
 
+            let model_name = Signal::derive(move || {
+                with!(|conversation, settings| {
+                    conversation.as_ref().and_then(move |conversation| {
+                        conversation.model_id.as_ref().and_then(move |model_id| {
+                            settings.models.get(model_id)
+                                .map(|model| model.display_name().to_owned())
+                        })
+                    })
+                })
+            });
+
             let hide_system_prompt_input = Signal::derive(move || {
                 with!(|settings, model_id| {
                     let Some(model_id) = model_id else { return false };
@@ -298,17 +309,19 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                         }}
                     </div>
                     {move || {
-                        model_id.get().map(|model_id| {
-                            view!{
-                                <h6 class="mt-auto ms-4">
-                                <span class="badge bg-secondary">
-                                    <a href={model_id.url()} target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
-                                    <span class="ms-1">
-                                        <BootstrapIcon icon="link-45deg" />
-                                    </span>
-                                </span>
-                            </h6>
-                            }
+                        with!(|model_id, model_name| {
+                            model_id.as_ref().map(move |model_id| {
+                                view!{
+                                    <h6 class="mt-auto ms-4">
+                                        <span class="badge bg-secondary">
+                                            <a href={model_id.url()} target="_blank" class="text-white text-decoration-none">{model_name.as_ref().cloned()}</a>
+                                            <span class="ms-1">
+                                                <BootstrapIcon icon="link-45deg" />
+                                            </span>
+                                        </span>
+                                    </h6>
+                                }
+                            })
                         })
                     }}
                     <div class="d-flex flex-row ms-auto pb-2">
