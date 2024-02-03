@@ -1,16 +1,22 @@
+default_model = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
+
 [[model]]
 model_id = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
+name = "Nous Hermes 2 - Mixtral 8x7B - DPO"
 chat_template = "ChatML"
 
 [[model]]
 model_id = "mistralai/Mistral-7B-Instruct-v0.2"
+name = "Mistral-7B-Instruct-v0.2"
 chat_template = "Instruct"
 
 [[model]]
 model_id = "mistralai/Mistral-7B-v0.1"
+name = "Mistral-7B-v0.1"
 
 [[model]]
 model_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+name = "Mixtral-8x7B"
 chat_template = "Instruct"
 
 #[[model]]
@@ -19,20 +25,26 @@ chat_template = "Instruct"
 
 [[model]]
 model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+name = "TinyLlama-1.1B"
 chat_template = "ChatML"
 
 [[model]]
 model_id = "HuggingFaceH4/zephyr-7b-beta"
+name = "Zephyr 7B β"
 chat_template = "ChatML"
 
 [[model]]
 model_id = "openai-community/gpt2"
+name = "GPT-2"
 
 [[model]]
 model_id = "bigcode/starcoder"
+name = "StarCoder"
 
 [[model]]
 model_id = "codellama/CodeLlama-7b-hf"
+name = "Code Llama"
 
 [[model]]
 model_id = "cognitivecomputations/TinyDolphin-2.8.1-1.1b"
+name = "TinyDolphin-2.8.1-1.1b"

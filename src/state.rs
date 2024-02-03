@@ -1,3 +1,5 @@
+#![allow(dead_code)] // backend stuff is not used anywhere yet.
+
 use std::{
     borrow::Cow,
     collections::{
@@ -24,6 +26,12 @@ use semver::Version;
 use serde::{
     Deserialize,
     Serialize,
+};
+use strum::{
+    AsRefStr,
+    EnumMessage,
+    EnumString,
+    VariantArray,
 };
 use uuid::Uuid;
 
@@ -120,6 +128,7 @@ pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
 
 #[derive(Debug, Deserialize)]
 struct DefaultSettings {
+    pub default_model: Option<ModelId>,
     #[serde(rename = "model", default)]
     models: Vec<Model>,
 }
@@ -133,8 +142,7 @@ lazy_static! {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub models: BTreeMap<ModelId, Model>,
-    #[serde(default)]
-    pub show_debug_tab: bool,
+    pub debug_mode: bool,
 }
 
 impl Settings {
@@ -151,7 +159,7 @@ impl Default for Settings {
     fn default() -> Self {
         let mut this = Self {
             models: BTreeMap::new(),
-            show_debug_tab: false,
+            debug_mode: false,
         };
         this.reset();
         this
@@ -160,8 +168,7 @@ impl Default for Settings {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Home {
-    #[serde(default = "default_model")]
-    pub selected_model: ModelId,
+    pub selected_model: Option<ModelId>,
     #[serde(default)]
     pub conversation_parameters: ConversationParameters,
     #[serde(default)]
@@ -178,8 +185,8 @@ impl Default for Home {
     }
 }
 
-fn default_model() -> ModelId {
-    ModelId("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO".to_owned())
+fn default_model() -> Option<ModelId> {
+    DEFAULT_SETTINGS.default_model.clone()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -245,6 +252,12 @@ pub struct Conversation {
 #[serde(transparent)]
 pub struct ModelId(pub String);
 
+impl ModelId {
+    pub fn url(&self) -> String {
+        format!("https://huggingface.co/{}", self.0)
+    }
+}
+
 impl From<&str> for ModelId {
     fn from(value: &str) -> Self {
         ModelId(value.to_owned())
@@ -259,10 +272,32 @@ pub struct Model {
     pub chat_template: ChatTemplate,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+impl Model {
+    pub fn display_name(&self) -> &str {
+        self.name.as_ref().unwrap_or_else(|| &self.model_id.0)
+    }
+}
+
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    VariantArray,
+    EnumString,
+    AsRefStr,
+    EnumMessage,
+)]
 pub enum ChatTemplate {
+    #[strum(message = "None")]
     None,
+    #[strum(message = "Instruct")]
     Instruct,
+    #[strum(message = "ChatML")]
     ChatML,
 }
 
@@ -333,17 +368,6 @@ impl ChatTemplate {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct HyperParameters {
-    pub temperature: f32,
-}
-
-impl Default for HyperParameters {
-    fn default() -> Self {
-        Self { temperature: 1.0 }
-    }
-}
-
 #[derive(
     Copy,
     Clone,
@@ -379,4 +403,47 @@ pub struct Message {
 pub enum Role {
     Assitant,
     User,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum BackendKind {
+    HuggingFace,
+    LlamaCpp,
+    LlamaCppRs,
+}
+
+impl BackendKind {
+    // todo: differences in how models can be selected
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+
+pub struct BackendSettings {
+    id: Uuid,
+    name: String,
+    settings: BackendKindSettings,
+}
+
+impl BackendSettings {
+    pub fn kind(&self) -> BackendKind {
+        self.settings.kind()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+
+pub enum BackendKindSettings {
+    HuggingFace { hf_token: Option<String> },
+    LlamaCpp { url: String },
+    LlamaCppRs { url: String, token: Option<String> },
+}
+
+impl BackendKindSettings {
+    pub fn kind(&self) -> BackendKind {
+        match self {
+            BackendKindSettings::HuggingFace { .. } => BackendKind::HuggingFace,
+            BackendKindSettings::LlamaCpp { .. } => BackendKind::LlamaCpp,
+            BackendKindSettings::LlamaCppRs { .. } => BackendKind::LlamaCppRs,
+        }
+    }
 }

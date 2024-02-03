@@ -31,7 +31,10 @@ use leptos::{
     SignalWithUntracked,
     WriteSignal,
 };
-use leptos_router::use_navigate;
+use leptos_router::{
+    use_navigate,
+    NavigateOptions,
+};
 use web_sys::{
     Event,
     ScrollLogicalPosition,
@@ -168,6 +171,45 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 }
             }
 
+            let delete_conversation = move |_| {
+                let id = id.get_untracked();
+
+                log::warn!("deleting conversation: {}", id);
+
+                // browse to home, but don't remember this page in the history.
+                use_navigate()("/", NavigateOptions {
+                    replace: true,
+                    ..Default::default()
+                });
+
+                // remove from conversations list
+                let StorageSignals {
+                    write: conversations,
+                    ..
+                } = use_conversations();
+                update!(|conversations| {
+                    conversations.remove(&id);
+                });
+
+                // remove the conversation
+                let conversation = use_conversation(id);
+                let message_ids = conversation
+                    .read
+                    .with(|conversation| {
+                        let Some(conversation) = conversation else {
+                            log::warn!("conversation gone: {id}");
+                            return vec![];
+                        };
+                        conversation.messages.clone()
+                    });
+                conversation.delete();
+
+                // remove all messages
+                for message_id in message_ids {
+                    delete_storage(StorageKey::Message(message_id));
+                }
+            };
+
             view! {
                 // delete modal
                 <div class="modal fade" id="conversation_delete_modal_modal" tabindex="-1">
@@ -186,37 +228,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                                     type="button"
                                     class="btn btn-danger"
                                     data-bs-dismiss="modal"
-                                    on:click=move |_| {
-                                        let id = id.get_untracked();
-
-                                        log::warn!("deleting conversation: {}", id);
-
-                                        use_navigate()("/", Default::default());
-
-                                        let StorageSignals {
-                                            write: conversations,
-                                            ..
-                                        } = use_conversations();
-                                        update!(|conversations| {
-                                            conversations.remove(&id);
-                                        });
-
-                                        let conversation = use_conversation(id);
-                                        let message_ids = conversation
-                                            .read
-                                            .with(|conversation| {
-                                                let Some(conversation) = conversation else {
-                                                    log::warn!("conversation gone: {id}");
-                                                    return vec![];
-                                                };
-                                                conversation.messages.clone()
-                                            });
-                                        conversation.delete();
-
-                                        for message_id in message_ids {
-                                            delete_storage(StorageKey::Message(message_id));
-                                        }
-                                    }
+                                    on:click=delete_conversation
                                 >
                                     "Delete"
                                 </button>
@@ -290,7 +302,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             view!{
                                 <h6 class="mt-auto ms-4">
                                 <span class="badge bg-secondary">
-                                    <a href=format!("https://huggingface.co/{model_id}") target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
+                                    <a href={model_id.url()} target="_blank" class="text-white text-decoration-none">{model_id.to_string()}</a>
                                     <span class="ms-1">
                                         <BootstrapIcon icon="link-45deg" />
                                     </span>
@@ -328,7 +340,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 </div>
 
                 // message form
-                <form on:submit=on_submit class="p-4 shadow-lg needs-validation" novalidate>
+                <div class="d-flex flex-column px-3 pt-3 shadow-lg">
                     <div class="collapse pb-2" id="sendMessageAdvancedContainer">
                         <ConversationParametersInputGroup
                             value=Signal::derive(move || conversation.with_untracked(|conversation| {
@@ -345,37 +357,39 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             hide_system_prompt=hide_system_prompt_input
                         />
                     </div>
-                    <div class="input-group input-group-lg mb-3">
-                        <input
-                            type="text"
-                            class="form-control"
-                            placeholder="Ask anything"
-                            value=move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.user_message.clone()).unwrap_or_default())
-                            on:input=move |event| {
-                                let user_message = event_target_value(&event);
-                                update_conversation.update(|conversation| {
-                                    let Some(conversation) = conversation else { return; };
-                                    conversation.user_message = user_message
-                                });
-                            }
-                        />
-                        <button class="btn btn-outline-secondary" type="submit" disabled=disable_send>
-                            {move || {
-                                if is_loading.get() {
-                                    view! {
-                                        <div class="spinner-grow spinner-grow-sm" role="status">
-                                            <span class="visually-hidden">"Generating..."</span>
-                                        </div>
-                                    }.into_view()
+                    <form on:submit=on_submit>
+                        <div class="input-group input-group-lg mb-3">
+                            <input
+                                type="text"
+                                class="form-control"
+                                placeholder="Ask anything"
+                                value=move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.user_message.clone()).unwrap_or_default())
+                                on:input=move |event| {
+                                    let user_message = event_target_value(&event);
+                                    update_conversation.update(|conversation| {
+                                        let Some(conversation) = conversation else { return; };
+                                        conversation.user_message = user_message
+                                    });
                                 }
-                                else {
-                                    view!{ <BootstrapIcon icon="send" /> }.into_view()
-                                }
-                            }}
-                        </button>
-                        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#sendMessageAdvancedContainer"><BootstrapIcon icon="three-dots" /></button>
-                    </div>
-                </form>
+                            />
+                            <button class="btn btn-outline-secondary" type="submit" disabled=disable_send>
+                                {move || {
+                                    if is_loading.get() {
+                                        view! {
+                                            <div class="spinner-border spinner-border-sm" role="status">
+                                                <span class="visually-hidden">"Generating..."</span>
+                                            </div>
+                                        }.into_view()
+                                    }
+                                    else {
+                                        view!{ <BootstrapIcon icon="send" /> }.into_view()
+                                    }
+                                }}
+                            </button>
+                            <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#sendMessageAdvancedContainer"><BootstrapIcon icon="three-dots" /></button>
+                        </div>
+                    </form>
+                </div>
             }
         }}
     }

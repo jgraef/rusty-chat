@@ -5,7 +5,6 @@ pub mod settings;
 use std::{
     cmp::Ordering,
     fmt::Display,
-    sync::Arc,
 };
 
 use chrono::{
@@ -84,8 +83,8 @@ lazy_static! {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Text generation error")]
-    TextGeneration(#[from] hf_textgen::Error),
+    #[error("Hugging Face API error")]
+    HfApiError(#[from] hf_textgen::Error),
     #[error("Conversation not found: {0}")]
     ConversationNotFound(ConversationId),
     #[error("Model ID not set")]
@@ -120,7 +119,7 @@ impl Errors {
 
 #[derive(Clone)]
 pub struct Context {
-    pub api: Arc<hf_textgen::Api>,
+    pub api: hf_textgen::Api,
     pub is_loading: RwSignal<bool>,
     pub errors: Errors,
 }
@@ -153,7 +152,7 @@ fn provide_context() {
     });
 
     leptos::provide_context(Context {
-        api: Arc::new(hf_textgen::Api::default()),
+        api: hf_textgen::Api::default(),
         is_loading: create_rw_signal(false),
         errors: Errors::default(),
     });
@@ -475,7 +474,7 @@ pub fn App() -> impl IntoView {
             <div class="d-flex flex-row" style="height: 100vh; width: 100%">
                 <nav class="d-flex flex-column flex-shrink-0 p-3 text-white shadow-lg sidebar">
                     <div class="d-flex flex-row">
-                        <A class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
+                        <A class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
                             <span class="fs-4">"🦀 RustyChat"</span>
                             <span class="badge bg-dark mt-auto ms-1">"beta"</span>
                         </A>
