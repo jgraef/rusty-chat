@@ -10,7 +10,7 @@ A demo is available [here][5]
 
 ![Screenshot of UI](docs/screenshot.png)
 
-# Building from source
+## Building from source
 
 You'll need [Rust][6] and [Trunk][7]. Then just run
 
