@@ -1,5 +1,3 @@
-#![allow(dead_code)] // backend stuff is not used anywhere yet.
-
 use std::{
     borrow::Cow,
     collections::{
@@ -13,7 +11,6 @@ use chrono::{
     DateTime,
     Local,
 };
-use lazy_static::lazy_static;
 use leptos::{
     Signal,
     WriteSignal,
@@ -22,7 +19,6 @@ use leptos_use::{
     storage::use_local_storage,
     utils::JsonCodec,
 };
-use semver::Version;
 use serde::{
     Deserialize,
     Serialize,
@@ -34,6 +30,8 @@ use strum::{
     VariantArray,
 };
 use uuid::Uuid;
+
+use crate::config::BUILD_CONFIG;
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub enum StorageKey {
@@ -102,21 +100,7 @@ pub fn delete_storage(key: StorageKey) {
     storage.delete(&key.as_str()).ok();
 }
 
-pub fn use_version() -> StorageSignals<Option<Version>> {
-    use_storage(StorageKey::Version)
-}
-
-pub fn use_home() -> StorageSignals<Home> {
-    use_storage(StorageKey::Home)
-}
-
-pub fn use_settings() -> StorageSignals<Settings> {
-    use_storage(StorageKey::Settings)
-}
-
-pub fn use_conversations() -> StorageSignals<HashSet<ConversationId>> {
-    use_storage(StorageKey::Conversations)
-}
+pub type Conversations = HashSet<ConversationId>;
 
 pub fn use_conversation(id: ConversationId) -> StorageSignals<Option<Conversation>> {
     use_storage(StorageKey::Conversation(id))
@@ -126,32 +110,28 @@ pub fn use_message(id: MessageId) -> StorageSignals<Option<Message>> {
     use_storage(StorageKey::Message(id))
 }
 
-#[derive(Debug, Deserialize)]
-struct DefaultSettings {
-    pub default_model: Option<ModelId>,
-    #[serde(rename = "model", default)]
-    models: Vec<Model>,
-}
-
-lazy_static! {
-    static ref DEFAULT_SETTINGS: DefaultSettings =
-        toml::from_str(include_str!("../default_settings.toml"))
-            .expect("invalid default_settings.toml");
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Settings {
     pub models: BTreeMap<ModelId, Model>,
     pub debug_mode: bool,
+    pub hf_token: Option<String>,
 }
 
 impl Settings {
-    pub fn reset(&mut self) {
-        self.models = DEFAULT_SETTINGS
+    pub fn reset_models(&mut self) {
+        self.models = BUILD_CONFIG
             .models
             .iter()
             .map(|model| (model.model_id.clone(), model.clone()))
             .collect();
+    }
+
+    pub fn api(&self) -> hf_textgen::Api {
+        let mut builder = hf_textgen::Api::builder();
+        if let Some(hf_token) = &self.hf_token {
+            builder = builder.with_hf_token(hf_token.clone());
+        }
+        builder.build()
     }
 }
 
@@ -160,15 +140,16 @@ impl Default for Settings {
         let mut this = Self {
             models: BTreeMap::new(),
             debug_mode: false,
+            hf_token: None,
         };
-        this.reset();
+        this.reset_models();
         this
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Home {
-    pub selected_model: Option<ModelId>,
+    pub selected_model: ModelId,
     #[serde(default)]
     pub conversation_parameters: ConversationParameters,
     #[serde(default)]
@@ -185,8 +166,8 @@ impl Default for Home {
     }
 }
 
-fn default_model() -> Option<ModelId> {
-    DEFAULT_SETTINGS.default_model.clone()
+fn default_model() -> ModelId {
+    BUILD_CONFIG.default_model.clone()
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -270,6 +251,8 @@ pub struct Model {
     pub name: Option<String>,
     #[serde(default)]
     pub chat_template: ChatTemplate,
+    #[serde(default)]
+    pub stream: bool,
 }
 
 impl Model {
@@ -403,47 +386,4 @@ pub struct Message {
 pub enum Role {
     Assitant,
     User,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub enum BackendKind {
-    HuggingFace,
-    LlamaCpp,
-    LlamaCppRs,
-}
-
-impl BackendKind {
-    // todo: differences in how models can be selected
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-
-pub struct BackendSettings {
-    id: Uuid,
-    name: String,
-    settings: BackendKindSettings,
-}
-
-impl BackendSettings {
-    pub fn kind(&self) -> BackendKind {
-        self.settings.kind()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-
-pub enum BackendKindSettings {
-    HuggingFace { hf_token: Option<String> },
-    LlamaCpp { url: String },
-    LlamaCppRs { url: String, token: Option<String> },
-}
-
-impl BackendKindSettings {
-    pub fn kind(&self) -> BackendKind {
-        match self {
-            BackendKindSettings::HuggingFace { .. } => BackendKind::HuggingFace,
-            BackendKindSettings::LlamaCpp { .. } => BackendKind::LlamaCpp,
-            BackendKindSettings::LlamaCppRs { .. } => BackendKind::LlamaCppRs,
-        }
-    }
 }

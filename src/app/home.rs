@@ -1,9 +1,7 @@
 use chrono::Local;
-use lazy_static::lazy_static;
 use leptos::{
     component,
     create_node_ref,
-    create_rw_signal,
     ev::SubmitEvent,
     event_target_value,
     expect_context,
@@ -13,24 +11,18 @@ use leptos::{
     CollectView,
     For,
     IntoView,
-    RwSignal,
     Signal,
     SignalGet,
     SignalGetUntracked,
     SignalSet,
     SignalUpdate,
+    SignalWith,
     SignalWithUntracked,
 };
 use leptos_router::{
     use_navigate,
     A,
 };
-use leptos_use::{
-    use_debounce_fn_with_arg_and_options,
-    DebounceOptions,
-};
-use serde::Deserialize;
-use web_sys::Event;
 
 use super::{
     conversation::ConversationParametersInputGroup,
@@ -40,76 +32,58 @@ use super::{
     Context,
 };
 use crate::{
+    config::{
+        BUILD_CONFIG,
+        GITHUB_ISSUES_PAGE,
+    },
     state::{
         use_conversation,
-        use_conversations,
-        use_home,
-        use_settings,
         Conversation,
         ConversationId,
-        ModelId,
         StorageSignals,
     },
-    utils::non_empty,
-    GITHUB_ISSUES_PAGE,
 };
-
-lazy_static! {
-    static ref EXAMPLES: Vec<String> = {
-        #[derive(Debug, Deserialize)]
-        struct Examples {
-            examples: Vec<String>,
-        }
-
-        let examples: Examples =
-            toml::from_str(include_str!("../../examples.toml")).expect("invalid examples.toml");
-        examples.examples
-    };
-}
 
 #[component]
 pub fn Home() -> impl IntoView {
-    let Context { is_loading, .. } = expect_context();
+    let Context {
+        is_loading,
+        settings,
+        home,
+        update_home,
+        update_conversations,
+        ..
+    } = expect_context();
 
     let user_message_input = create_node_ref::<Input>();
 
-    let StorageSignals { read: settings, .. } = use_settings();
-
-    let StorageSignals {
-        read: home,
-        write: update_home,
-        ..
-    } = use_home();
     let current_model = Signal::derive(move || with!(|home| home.selected_model.clone()));
+
+    let current_model_name = Signal::derive(move || {
+        with!(|current_model, settings| {
+            settings
+                .models
+                .get(current_model)
+                .unwrap()
+                .display_name()
+                .to_owned()
+        })
+    });
 
     let hide_system_prompt_input = Signal::derive(move || {
         with!(|settings, current_model| {
-            current_model
-                .as_ref()
-                .and_then(|model_id| {
-                    settings
-                        .models
-                        .get(model_id)
-                        .map(|model| !model.chat_template.supports_system_prompt())
-                })
+            settings
+                .models
+                .get(current_model)
+                .map(|model| !model.chat_template.supports_system_prompt())
                 .unwrap_or_default()
         })
     });
 
-    let StorageSignals {
-        write: update_conversations,
-        ..
-    } = use_conversations();
-
     let start_chat = move |user_message: String, conversation_parameters| {
         let now = Local::now();
 
-        // currently we don't support starting chats without a model. but we might
-        // later, once we have backends that have a fixed model
-        let Some(current_model) = current_model.get_untracked()
-        else {
-            return;
-        };
+        let current_model = current_model.get_untracked();
 
         let conversation_id = ConversationId::new();
         let conversation = Conversation {
@@ -145,121 +119,33 @@ pub fn Home() -> impl IntoView {
     let on_submit = move |event: SubmitEvent| {
         event.prevent_default();
 
-        let Some((user_message, conversation_parameters)) = update_home
+        let Some(user_message_input) = user_message_input.get_untracked()
+        else {
+            log::error!("user_message_input missing");
+            return;
+        };
+
+        let user_message = user_message_input.value();
+        if user_message.is_empty() {
+            return;
+        }
+
+        let Some(conversation_parameters) = update_home
             .try_update(|home| {
-                let user_message = non_empty(std::mem::replace(
-                    &mut home.user_message,
-                    Default::default(),
-                ))?;
+                home.user_message = "".to_owned();
                 let conversation_parameters = home.conversation_parameters.clone();
-                Some((user_message, conversation_parameters))
+                Some(conversation_parameters)
             })
             .flatten()
         else {
+            log::error!("home write signal went dead");
             return;
         };
 
         start_chat(user_message, conversation_parameters);
     };
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    enum ModelInputStatus {
-        NoModel,
-        Checking,
-        Loadable,
-        NotLoadable,
-        NotFound,
-    }
-
-    impl ModelInputStatus {
-        fn is_valid(&self) -> bool {
-            *self == Self::Loadable
-        }
-
-        fn is_invalid(&self) -> bool {
-            *self == Self::NotFound || *self == Self::NotLoadable
-        }
-
-        fn is_loading(&self) -> bool {
-            *self == Self::Checking
-        }
-    }
-
-    let model_options: RwSignal<Vec<(ModelId, String)>> = create_rw_signal(vec![]);
-    // todo: check if stored model_id is empty or valid/invalid to initialize these.
-    let model_input_is_invalid = create_rw_signal(false);
-    let model_input_is_empty = create_rw_signal(current_model.with_untracked(|id| id.is_none()));
-
-    let set_current_model = move |model_id: Option<ModelId>| {
-        settings.with_untracked(move |settings| {
-            let mut models = if let Some(model_id) = model_id {
-                let mut models = vec![];
-                let mut exact_match = false;
-                let model_id_lowercase = model_id.0.to_lowercase();
-
-                for (id, model) in settings.models.range(model_id.clone()..) {
-                    if id == &model_id {
-                        exact_match = true;
-                    }
-
-                    if id.0.to_lowercase().contains(&model_id_lowercase)
-                        || model
-                            .name
-                            .as_ref()
-                            .map(|name| name.to_lowercase().contains(&model_id_lowercase))
-                            .unwrap_or_default()
-                    {
-                        models.push((id.clone(), model.display_name().to_owned()));
-                    }
-                }
-
-                model_input_is_invalid.set(!exact_match);
-                model_input_is_empty.set(false);
-
-                if exact_match {
-                    update_home.update(move |home| {
-                        home.selected_model = Some(model_id);
-                    });
-                }
-
-                models
-            }
-            else {
-                model_input_is_empty.set(true);
-                model_input_is_invalid.set(false);
-
-                update_home.update(move |home| {
-                    home.selected_model = None;
-                });
-
-                settings
-                    .models
-                    .iter()
-                    .map(|(id, model)| (id.clone(), model.display_name().to_owned()))
-                    .collect()
-            };
-
-            models.sort_by_cached_key(|(_, display_name)| display_name.to_lowercase());
-
-            model_options.set(models);
-        });
-    };
-
-    set_current_model(current_model.get_untracked());
-
-    let on_model_input = move |event: Event| {
-        let model_id = non_empty(event_target_value(&event)).map(ModelId);
-        log::debug!("model input: '{model_id:?}'");
-
-        set_current_model(model_id);
-    };
-
-    let on_model_input_debounced =
-        use_debounce_fn_with_arg_and_options(on_model_input, 100.0, DebounceOptions::default());
-
-    let disable_send = Signal::derive(move || {
-        is_loading.get() || model_input_is_empty.get() || model_input_is_invalid.get()
-    });
+    let disable_send = Signal::derive(move || is_loading.get());
 
     view! {
         <div class="d-flex flex-column h-100 w-100">
@@ -277,18 +163,7 @@ pub fn Home() -> impl IntoView {
                             "API. And all your data is kept stored here in your browser."
                         </p>
                         <p class="mt-2 mx-4">
-                            "The app starts out with a few models. We recommend "
-                            <i>
-                                "Nous Hermes 2"
-                            </i>
-                            ". You can add more models under "
-                            <A href="/settings/models">
-                                "Settings"
-                            </A>
-                            "."
-                        </p>
-                        <p class="mt-2 mx-4">
-                            "You found a bug? Please let us know on "
+                            "Found a bug? Please let us know on "
                             <a href=GITHUB_ISSUES_PAGE target="_blank">
                                 "GitHub"
                                 <BootstrapIcon icon="link-45deg" />
@@ -299,7 +174,7 @@ pub fn Home() -> impl IntoView {
                     <div class="d-flex flex-column">
                         <h4>"Examples"</h4>
                         {
-                            EXAMPLES.iter().map(|example| {
+                            BUILD_CONFIG.examples.iter().map(|example| {
                                 view!{
                                     <button
                                         type="button"
@@ -332,61 +207,73 @@ pub fn Home() -> impl IntoView {
                         hide_system_prompt=hide_system_prompt_input
                     />
                 </div>
-                <div class="d-flex flex-row mb-3">
-                    /*<div class="input-group me-3 flex-shrink w-25">
-                        <select class="form-select" aria-label="Select a backend">
-                            <option selected>"Hugging Face"</option>
-                            <option value="llama-cpp">"llama.cpp"</option>
-                            <option value="llama-cpp-rs">"llama.cpp-rs"</option>
-                        </select>
-                    </div>*/
-                    <div class="input-group flex-grow-1 dropup">
+                <div class="mb-3 dropup flex-grow-1">
+                    <div class="input-group" data-bs-toggle="dropdown">
                         <span class="input-group-text">"Model"</span>
-                        /*<select class="form-select" aria-label="Select a model to chat with" on:change=on_model_selected>
-                            <For
-                                each=move || with!(|settings| settings.models.keys().cloned().collect::<Vec<_>>())
-                                key=|model_id| model_id.clone()
-                                children=move |model_id| {
-                                    let model_id_str = model_id.to_string();
-                                    view!{
-                                        <option selected=move || current_model.with(|current| current == &model_id) value={model_id_str.clone()}>{model_id_str}</option>
-                                    }
-                                }
-                            />
-                        </select>*/
                         <input
                             class="form-control"
-                            class:is-invalid=model_input_is_invalid
-                            placeholder="Select model..."
-                            prop:value=move || current_model.get().map(|id| id.0).unwrap_or_default()
-                            data-bs-toggle="dropdown"
-                            on:input=move |event| { on_model_input_debounced(event); }
+                            value=current_model_name
+                            readonly
                         />
-                        <ul
-                            class="dropdown-menu w-100"
-                            class:visually-hidden=move || with!(|model_options| model_options.is_empty())
-                        >
+                    </div>
+                    <div class="dropdown-menu w-100">
+                        /*<For
+                            each=move || with!(|model_options| model_options.iter().cloned().collect::<Vec<_>>())
+                            key=move |(id, _)| id.clone()
+                            children=move |(id, display_name)| {
+                                view! {
+                                    <li>
+                                        <button
+                                            type="button"
+                                            class="dropdown-item"
+                                            on:click=move |_| {
+                                                set_current_model(Some(id.clone()));
+                                            }
+                                        >
+                                            {display_name}
+                                        </button>
+                                    </li>
+                                }
+                            }
+                        />*/
+                        <div class="overflow-y-scroll" style="max-height: 50vh;">
                             <For
-                                each=move || with!(|model_options| model_options.iter().cloned().collect::<Vec<_>>())
-                                key=move |(id, _)| id.clone()
-                                children=move |(id, display_name)| {
-                                    view! {
-                                        <li>
-                                            <button
-                                                type="button"
-                                                href="#"
-                                                class="dropdown-item"
-                                                on:click=move |_| {
-                                                    set_current_model(Some(id.clone()));
+                                each=move || with!(|settings| {
+                                    let mut items = settings.models
+                                        .iter()
+                                        .map(|(id, model)| (id.clone(), model.display_name().to_lowercase()))
+                                        .collect::<Vec<_>>();
+                                    items.sort_by_cached_key(|(_, name)| name.clone());
+                                    items
+                                })
+                                key=|(model_id, _)| model_id.clone()
+                                children=move |(model_id, _)| {
+                                    let model_name = settings.with(|settings| settings.models.get(&model_id).unwrap().display_name().to_owned());
+                                    view!{
+                                        <button
+                                            type="button"
+                                            class="dropdown-item"
+                                            class:active=move || with!(|current_model| current_model == &model_id)
+                                            on:click={
+                                                let model_id = model_id.clone();
+                                                move |_| {
+                                                    let model_id = model_id.clone();
+                                                    update_home.update(move |home| home.selected_model = model_id);
                                                 }
-                                            >
-                                                {display_name}
-                                            </button>
-                                        </li>
+                                            }
+                                        >
+                                            {model_name}
+                                        </button>
                                     }
                                 }
                             />
-                        </ul>
+                        </div>
+                        <small class="dropdown-header my-0 mx-3 p-0">
+                            "Add more models under "
+                            <A href="/settings/models">
+                                "Settings"
+                            </A>
+                        </small>
                     </div>
                 </div>
                 <form on:submit=on_submit>

@@ -48,12 +48,11 @@ use crate::{
     },
     state::{
         clear_storage,
-        use_settings,
         ChatTemplate,
         Model,
         ModelId,
-        StorageSignals,
     },
+    utils::non_empty,
 };
 
 #[component(transparent)]
@@ -64,8 +63,7 @@ pub fn SettingsRoutes() -> impl IntoView {
             <Route path="backends" view=BackendsTab />
             <Route path="models" view=ModelsTab />
             <Route path="debug" view=DebugTab />
-            // for now we redirect to models instead of general, because general is still empty
-            <Route path="" view=|| view!{ <Redirect path="/settings/models" /> } />
+            <Route path="" view=|| view!{ <Redirect path="/settings/general" /> } />
         </Route>
     }
 }
@@ -83,7 +81,7 @@ pub fn Tab<H: ToHref + 'static>(href: H, children: Children) -> impl IntoView {
 
 #[component]
 fn Settings() -> impl IntoView {
-    let StorageSignals { read: settings, .. } = use_settings();
+    let Context { settings, .. } = expect_context();
 
     view! {
         <div class="d-flex flex-row px-4 pt-3 w-100">
@@ -92,27 +90,92 @@ fn Settings() -> impl IntoView {
                 Settings
             </h4>
         </div>
-        {move || {
-            // only show tabs in debug mode, since models is the only meaningful tab right now.
-            with!(|settings| settings.debug_mode)
-                .then(|| view!{
-                    <ul class="nav nav-tabs px-4 mt-2">
-                        <Tab href="/settings/general">"General"</Tab>
-                        <Tab href="/settings/models">"Models"</Tab>
+        <ul class="nav nav-tabs px-4 mt-2">
+            <Tab href="/settings/general">"General"</Tab>
+            <Tab href="/settings/models">"Models"</Tab>
+            {move || {
+                with!(|settings| settings.debug_mode)
+                    .then(|| view!{
                         <Tab href="/settings/backends">"Backends"</Tab>
                         <Tab href="/settings/debug">"Debug"</Tab>
-                    </ul>
-                })
-        }}
+                    })
+            }}
+        </ul>
         <Outlet />
     }
 }
 
 #[component]
 fn GeneralTab() -> impl IntoView {
+    let Context {
+        settings,
+        update_settings,
+        ..
+    } = expect_context();
+
+    #[derive(Clone, Copy, Debug, EnumMessage, EnumIs)]
+    enum HfTokenState {
+        #[strum(
+            message = "Enter your Hugging Face API token. This increases your API rate limit."
+        )]
+        None,
+        #[strum(message = "Hugging Face API token")]
+        Valid,
+        #[strum(message = "The entered API token is invalid")]
+        Invalid,
+    }
+
+    impl HfTokenState {
+        pub fn new(hf_token: &Option<String>) -> Self {
+            if let Some(value) = &hf_token {
+                if value.starts_with("hf_") && value.len() > 3 {
+                    Self::Valid
+                }
+                else {
+                    Self::Invalid
+                }
+            }
+            else {
+                Self::None
+            }
+        }
+    }
+
+    let hf_token_state =
+        settings.with_untracked(|settings| create_rw_signal(HfTokenState::new(&settings.hf_token)));
+
     view! {
         <div class="d-flex flex-column overflow-y-scroll mb-auto p-4 mw-100 w-75 mx-auto">
-            "General tab"
+            <div class="mb-3">
+                <div class="form-floating">
+                    <input
+                        type="password"
+                        class="form-control"
+                        class:is-valid=move || hf_token_state.get().is_valid()
+                        class:is-invalid=move || hf_token_state.get().is_invalid()
+                        id="general_hf_token"
+                        aria-label="Enter your Hugging Face token"
+                        value=move || with!(|settings| settings.hf_token.clone())
+                        on:input=move |event| {
+                            let hf_token = non_empty(event_target_value(&event));
+                            let new_state = HfTokenState::new(&hf_token);
+                            let set_token = new_state.is_valid().then_some(hf_token).flatten();
+
+                            update_settings.update(move |settings| {
+                                settings.hf_token = set_token;
+                            });
+                        }
+                    />
+                    <label
+                        for="hf_token_input"
+                        class:text-success-emphasis=move || hf_token_state.get().is_valid()
+                        class:text-danger-emphasis=move || hf_token_state.get().is_invalid()
+                    >
+                        {move || hf_token_state.get().get_message()}
+                    </label>
+                </div>
+                <div class="form-text">"Your token is stored in your browser and is only sent to the Hugging Face API."</div>
+            </div>
         </div>
     }
 }
@@ -128,12 +191,12 @@ fn BackendsTab() -> impl IntoView {
 
 #[component]
 fn ModelsTab() -> impl IntoView {
-    let Context { api, errors, .. } = expect_context();
-    let StorageSignals {
-        read: settings,
-        write: update_settings,
+    let Context {
+        errors,
+        settings,
+        update_settings,
         ..
-    } = use_settings();
+    } = expect_context();
 
     #[derive(Debug, EnumIs)]
     enum SelectedModel {
@@ -209,10 +272,11 @@ fn ModelsTab() -> impl IntoView {
     let model_name_input_field = create_node_ref::<Input>();
     let model_id_input_field = create_node_ref::<Input>();
     let model_chat_template_input_field = create_node_ref::<Select>();
+    let model_stream_input_field = create_node_ref::<Input>();
     let changes_saved = create_rw_signal(false);
 
     let check_model = {
-        let api = api.clone();
+        let api = settings.with_untracked(|settings| settings.api());
 
         move |model_id: ModelId| {
             async move {
@@ -299,10 +363,10 @@ fn ModelsTab() -> impl IntoView {
             let model_id = ModelId(model_id);
 
             let check_model = check_model.clone();
-            let api = api.clone();
 
             spawn_local(
                 async move {
+                    let api = settings.with_untracked(|settings| settings.api());
                     let search_results = api.quick_search(&model_id.0, Some(5)).await?;
 
                     let exact_match = search_results
@@ -413,11 +477,13 @@ fn ModelsTab() -> impl IntoView {
             .value()
             .parse::<ChatTemplate>()
             .unwrap();
+        let stream = model_stream_input_field.get_untracked().unwrap().checked();
 
         let model = Model {
             model_id: new_model_id.clone(),
             name: Some(name),
             chat_template,
+            stream,
         };
         log::debug!("{model:#?}");
 
@@ -468,48 +534,54 @@ fn ModelsTab() -> impl IntoView {
             </div>
         </div>
 
-        <div class="d-flex flex-row mw-100 mh-100">
+        <div class="d-flex flex-row w-100 flex-grow-1">
             // model list
-            <div class="d-flex flex-column m-4 w-25 mh-100">
-                <button
-                    type="button"
-                    class="btn btn-primary mb-2"
-                    on:click=move |_| select_model(SelectedModel::New)
-                >
-                    <span class="me-1"><BootstrapIcon icon="plus-circle-fill" /></span>
-                    "Add model"
-                </button>
-                <ul class="list-group overflow-y-scroll mh-100">
-                    <For
-                        each=move || {
-                            let mut items = with!(|settings| settings.models.iter().map(|(id, model)| (id.clone(), model.display_name().to_lowercase())).collect::<Vec<_>>());
-                            items.sort_by_cached_key(|(_, display_name)| display_name.clone());
-                            items
-                        }
-                        key=|(id, _)| id.clone()
-                        children=move |(id, _)| {
-                            let id2 = id.clone();
-                            view!{
-                                <button
-                                    type="button"
-                                    class="list-group-item list-group-item-action text-truncate"
-                                    class:active=move || {
-                                        let id = id2.clone();
-                                        with!(|selected_model| selected_model.is_model(&id))
+            <div class="d-flex flex-column m-4 w-25 h-100 mh-100">
+                <div class="pe-1 w-100">
+                    <button
+                        type="button"
+                        class="btn btn-primary mb-2 w-100"
+                        on:click=move |_| select_model(SelectedModel::New)
+                    >
+                        <span class="me-1"><BootstrapIcon icon="plus-circle-fill" /></span>
+                        "New model"
+                    </button>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="overflow-y-scroll h-75 pe-1 w-100">
+                        <div class="list-group w-100">
+                            <For
+                                each=move || {
+                                    let mut items = with!(|settings| settings.models.iter().map(|(id, model)| (id.clone(), model.display_name().to_lowercase())).collect::<Vec<_>>());
+                                    items.sort_by_cached_key(|(_, display_name)| display_name.clone());
+                                    items
+                                }
+                                key=|(id, _)| id.clone()
+                                children=move |(id, _)| {
+                                    let id2 = id.clone();
+                                    view!{
+                                        <button
+                                            type="button"
+                                            class="list-group-item list-group-item-action text-truncate"
+                                            class:active=move || {
+                                                let id = id2.clone();
+                                                with!(|selected_model| selected_model.is_model(&id))
+                                            }
+                                            on:click={
+                                                let id = id2.clone();
+                                                move |_| select_model(SelectedModel::Edit(id.clone()))
+                                            }
+                                        >
+                                            {move || {
+                                                with!(|settings| settings.models.get(&id).map(|model| model.display_name().to_owned()))
+                                            }}
+                                        </button>
                                     }
-                                    on:click={
-                                        let id = id2.clone();
-                                        move |_| select_model(SelectedModel::Edit(id.clone()))
-                                    }
-                                >
-                                    {move || {
-                                        with!(|settings| settings.models.get(&id).map(|model| model.display_name().to_owned()))
-                                    }}
-                                </button>
-                            }
-                        }
-                    />
-                </ul>
+                                }
+                            />
+                        </div>
+                    </div>
+                </div>
             </div>
 
             // edit/add model form
@@ -680,6 +752,23 @@ fn ModelsTab() -> impl IntoView {
                     <label for="model_chat_template_select">"Select a chat template"</label>
                 </div>
 
+                // stream toggle
+                <div class="form-check form-switch mb-3">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        id="model_stream_switch"
+                        node_ref=model_stream_input_field
+                        prop:checked=move || with!(|selected_model_data| {
+                            selected_model_data.as_ref()
+                                .map(|model| model.stream)
+                                .unwrap_or(true)
+                        })
+                    />
+                    <label class="form-check-label" for="model_stream_switch">"Stream assistant response (this is not supported by some models)"</label>
+                </div>
+
                 // buttons
                 <div class="d-flex flex-row w-100 justify-content-end">
                     {move || with!(|selected_model| {
@@ -714,13 +803,12 @@ fn ModelsTab() -> impl IntoView {
 
 #[component]
 fn DebugTab() -> impl IntoView {
-    let Context { errors, .. } = expect_context();
-
-    let StorageSignals {
-        read: settings,
-        write: update_settings,
+    let Context {
+        errors,
+        settings,
+        update_settings,
         ..
-    } = use_settings();
+    } = expect_context();
 
     let emit_error_input = create_node_ref::<Input>();
 
@@ -779,11 +867,21 @@ fn DebugTab() -> impl IntoView {
                     type="button"
                     class="btn btn-danger me-3"
                     on:click=move |_| {
-                        update_settings.update(|settings| settings.reset());
+                        update_settings.update(|settings| *settings = Default::default());
                     }
                 >
                     <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
                     "Reset settings"
+                </button>
+                <button
+                    type="button"
+                    class="btn btn-danger me-3"
+                    on:click=move |_| {
+                        update_settings.update(|settings| settings.reset_models());
+                    }
+                >
+                    <span class="me-2"><BootstrapIcon icon="exclamation-triangle-fill" /></span>
+                    "Reset models"
                 </button>
             </div>
             <form

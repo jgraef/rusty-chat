@@ -1,6 +1,0 @@
-examples = [
-    "Write a poem about AI.",
-    "Write a Hello World in Rust.",
-    "Explain algorithmic entropy.",
-    "Write some example Markdown.",
-]

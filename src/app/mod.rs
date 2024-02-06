@@ -36,6 +36,7 @@ use leptos::{
     SignalUpdate,
     SignalWith,
     SignalWithUntracked,
+    WriteSignal,
 };
 use leptos_meta::{
     provide_meta_context,
@@ -63,19 +64,21 @@ use self::{
     settings::SettingsRoutes,
 };
 use crate::{
+    config::GITHUB_PAGE,
     state::{
         use_conversation,
-        use_conversations,
         use_message,
-        use_settings,
-        use_version,
+        use_storage,
         ConversationId,
+        Conversations,
+        Home,
         Message,
         MessageId,
         Role,
+        Settings,
+        StorageKey,
         StorageSignals,
     },
-    GITHUB_PAGE,
 };
 
 lazy_static! {
@@ -122,9 +125,14 @@ impl Errors {
 
 #[derive(Clone)]
 pub struct Context {
-    pub api: hf_textgen::Api,
     pub is_loading: RwSignal<bool>,
     pub errors: Errors,
+    pub settings: Signal<Settings>,
+    pub update_settings: WriteSignal<Settings>,
+    pub home: Signal<Home>,
+    pub update_home: WriteSignal<Home>,
+    pub conversations: Signal<Conversations>,
+    pub update_conversations: WriteSignal<Conversations>,
 }
 
 fn provide_context() {
@@ -133,7 +141,7 @@ fn provide_context() {
     let StorageSignals {
         write: update_version,
         ..
-    } = use_version();
+    } = use_storage(StorageKey::Version);
     update_version.try_update(|storage_version| {
         log::info!("storage version: {:?}", storage_version);
 
@@ -154,10 +162,31 @@ fn provide_context() {
         }
     });
 
+    let StorageSignals {
+        read: settings,
+        write: update_settings,
+        ..
+    } = use_storage(StorageKey::Settings);
+    let StorageSignals {
+        read: home,
+        write: update_home,
+        ..
+    } = use_storage(StorageKey::Home);
+    let StorageSignals {
+        read: conversations,
+        write: update_conversations,
+        ..
+    } = use_storage(StorageKey::Conversations);
+
     leptos::provide_context(Context {
-        api: hf_textgen::Api::default(),
         is_loading: create_rw_signal(false),
         errors: Errors::default(),
+        settings,
+        update_settings,
+        home,
+        update_home,
+        conversations,
+        update_conversations,
     });
 }
 
@@ -167,11 +196,13 @@ pub fn expect_context() -> Context {
 
 pub fn push_user_message(conversation_id: ConversationId, user_message: String) {
     let Context {
-        api,
         is_loading,
         errors,
+        settings,
         ..
     } = expect_context();
+
+    let api = settings.with_untracked(|settings| settings.api());
 
     let message_id = MessageId::new();
     let now = Local::now();
@@ -193,7 +224,6 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
             write: update_conversation,
             ..
         } = use_conversation(conversation_id);
-        let StorageSignals { read: settings, .. } = use_settings();
 
         update_conversation
             .try_update(move |conversation| {
@@ -264,7 +294,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
         async move {
             is_loading.set(true);
 
-            let mut stream = model.generate(&prompt).await?;
+            let mut stream = model.generate_stream(&prompt).await?;
 
             let message_id = MessageId::new();
             let now = Local::now();
@@ -325,9 +355,13 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
 }
 
 fn request_conversation_title(conversation_id: ConversationId, user_message: &str) {
-    let Context { api, errors, .. } = expect_context();
+    let Context {
+        errors, settings, ..
+    } = expect_context();
 
-    let mut model = api.text_generation("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO");
+    let mut model = settings
+        .with_untracked(|settings| settings.api())
+        .text_generation("NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO");
     model.max_new_tokens = Some(20);
 
     let prompt = format!(
@@ -355,9 +389,10 @@ Message: {user_message}
 
     spawn_local(
         async move {
-            let stream = model.generate(&prompt).await?.text();
-            let title = stream.try_collect::<String>().await?;
-            let mut lines = title.lines();
+            let response = model.generate(&prompt).await?;
+
+            // only use the first line.
+            let mut lines = response.lines();
             let title = lines.next().unwrap().to_owned();
 
             log::debug!("generated title: '{title}'");
@@ -404,10 +439,7 @@ pub fn App() -> impl IntoView {
 
     provide_context();
 
-    let StorageSignals {
-        read: conversations,
-        ..
-    } = use_conversations();
+    let Context { conversations, .. } = expect_context();
 
     #[derive(Copy, Clone, Debug, PartialEq)]
     struct Item {
@@ -479,7 +511,6 @@ pub fn App() -> impl IntoView {
                     <div class="d-flex flex-row">
                         <A class="d-flex mb-3 mb-md-0 me-md-auto text-white text-decoration-none" href="/">
                             <span class="fs-4">"🦀 RustyChat"</span>
-                            <span class="badge bg-dark mt-auto ms-1">"beta"</span>
                         </A>
                         <small class="d-flex flex-row">
                             <button type="button" class="btn py-0 px-1 m-auto" style="color: white;" on:click=move |_| toggle_theme()>
@@ -501,14 +532,13 @@ pub fn App() -> impl IntoView {
                                 children=move |item| {
                                     // note: i can't make this work, if we put the title signal into the memo.
                                     let StorageSignals { read: conversation, .. } = use_conversation(item.id);
-                                    let title = Signal::derive(move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.title.clone())));
+                                    let title = Signal::derive(move || with!(|conversation| conversation.as_ref().and_then(|conversation| conversation.title.clone())));
 
                                     view! {
                                         <NavLink href=format!("/conversation/{}", item.id)>
                                             <div class="text-nowrap text-truncate" style="width: 200px">
                                                 {move || {
-                                                    let title = title.get();
-                                                    if let Some(title) = title {
+                                                    if let Some(title) = title.get() {
                                                         view!{{title}}.into_view()
                                                     }
                                                     else {
@@ -533,50 +563,49 @@ pub fn App() -> impl IntoView {
                         </NavLink>
                     </ul>
                 </nav>
-                <main class="w-100 p-0 main">
-                    <div class="d-flex flex-column flex-grow-1 h-100 position-relative" style="max-height: 100vh">
-                        <div class="z-1 position-absolute top-0 start-50 translate-middle-x w-50">
-                            <div
-                                class="alert alert-danger alert-dismissible fade show mt-4"
-                                class:visually-hidden=move || errors.0.with(|errors| errors.is_empty())
-                                role="alert"
-                            >
-                                <h5>"Error"</h5>
-                                <For
-                                    each=move || errors.0.get()
-                                    key=|error| error.id
-                                    children=|error| view!{
-                                        <hr />
-                                        <p>
-                                            <span class="me-2"><BootstrapIcon icon="exclamation-circle" /></span>
-                                            {error.message}
-                                        </p>
-                                    }
-                                />
-                                <button
-                                    type="button"
-                                    class="btn-close"
-                                    aria-label="Close"
-                                    on:click=move |_| errors.0.update(|errors| errors.clear())
-                                ></button>
-                            </div>
+                <main class="main d-flex flex-column w-100 h-100 mw-100 mh-100 position-relative">
+
+                    <div class="z-1 position-absolute top-0 start-50 translate-middle-x w-50">
+                        <div
+                            class="alert alert-danger alert-dismissible fade show mt-4"
+                            class:visually-hidden=move || errors.0.with(|errors| errors.is_empty())
+                            role="alert"
+                        >
+                            <h5>"Error"</h5>
+                            <For
+                                each=move || errors.0.get()
+                                key=|error| error.id
+                                children=|error| view!{
+                                    <hr />
+                                    <p>
+                                        <span class="me-2"><BootstrapIcon icon="exclamation-circle" /></span>
+                                        {error.message}
+                                    </p>
+                                }
+                            />
+                            <button
+                                type="button"
+                                class="btn-close"
+                                aria-label="Close"
+                                on:click=move |_| errors.0.update(|errors| errors.clear())
+                            ></button>
                         </div>
-                        <Routes>
-                            <Route path="/" view=Home />
-                            <Route path="/conversation/:id" view=move || {
-                                let params = use_params_map();
-                                let id = Signal::derive(move || {
-                                    let id = params.with(|p| p.get("id").cloned().unwrap());
-                                    let id = Uuid::parse_str(&id).expect("invalid conversation id");
-                                    let id = ConversationId::from(id);
-                                    id
-                                });
-                                view!{ <Conversation id=id /> }
-                            } />
-                            <SettingsRoutes />
-                            <Route path="" view=NotFound />
-                        </Routes>
                     </div>
+                    <Routes>
+                        <Route path="/" view=Home />
+                        <Route path="/conversation/:id" view=move || {
+                            let params = use_params_map();
+                            let id = Signal::derive(move || {
+                                let id = params.with(|p| p.get("id").cloned().unwrap());
+                                let id = Uuid::parse_str(&id).expect("invalid conversation id");
+                                let id = ConversationId::from(id);
+                                id
+                            });
+                            view!{ <Conversation id=id /> }
+                        } />
+                        <SettingsRoutes />
+                        <Route path="/*any" view=NotFound />
+                    </Routes>
                 </main>
             </div>
         </Router>
@@ -585,5 +614,9 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn NotFound() -> impl IntoView {
-    view! { "Not found" }
+    view! {
+        <div class="h-100 w-100 pt-3 px-4">
+            <h1>"404 - Not found"</h1>
+        </div>
+    }
 }

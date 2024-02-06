@@ -51,9 +51,7 @@ use crate::{
     state::{
         delete_storage,
         use_conversation,
-        use_conversations,
         use_message,
-        use_settings,
         ConversationId,
         ConversationParameters,
         MessageId,
@@ -66,7 +64,12 @@ use crate::{
 
 #[component]
 pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoView {
-    let Context { is_loading, .. } = expect_context();
+    let Context {
+        is_loading,
+        settings,
+        update_conversations,
+        ..
+    } = expect_context();
 
     // auto-scrolling
     // this is done by having an empty div at the bottom of the page (right before
@@ -94,7 +97,6 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
     view! {
         {move || {
             let StorageSignals { read: conversation, write: update_conversation, .. } = use_conversation(id.get());
-            let StorageSignals { read: settings, .. } = use_settings();
 
             // create effect to auto-scroll
             let scroll_target = create_node_ref::<Div>();
@@ -107,6 +109,8 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 is_initial_scroll.set(false);
             });*/
 
+            let user_message_input = create_node_ref::<Input>();
+
             // send message
 
             let on_submit = move |event: SubmitEvent| {
@@ -114,17 +118,27 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
 
                 let id = id.get_untracked();
 
-                let Some(user_message) = update_conversation.try_update(|conversation| {
-                    let Some(conversation) = conversation else {
-                        log::warn!("conversation gone: {id}");
-                        return None;
-                    };
-                    let user_message = non_empty(std::mem::replace(&mut conversation.user_message, Default::default()))?;
-                    Some(user_message)
-                }).flatten()
-                else {
+                let Some(user_message_input) = user_message_input.get_untracked() else {
+                    log::error!("user_message_input missing");
                     return;
                 };
+
+                let user_message = user_message_input.value();
+                if user_message.is_empty() {
+                    return;
+                }
+
+                // clear message field
+                user_message_input.set_value("");
+
+                // clear message in local storage
+                update_conversation.try_update(|conversation| {
+                    let Some(conversation) = conversation else {
+                        log::warn!("conversation gone: {id}");
+                        return;
+                    };
+                    conversation.user_message = "".to_owned();
+                });
 
                 push_user_message(id, user_message);
             };
@@ -194,12 +208,8 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                 });
 
                 // remove from conversations list
-                let StorageSignals {
-                    write: conversations,
-                    ..
-                } = use_conversations();
-                update!(|conversations| {
-                    conversations.remove(&id);
+                update!(|update_conversations| {
+                    update_conversations.remove(&id);
                 });
 
                 // remove the conversation
@@ -376,7 +386,14 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                                 type="text"
                                 class="form-control"
                                 placeholder="Ask anything"
-                                value=move || with!(|conversation| conversation.as_ref().map(|conversation| conversation.user_message.clone()).unwrap_or_default())
+                                value=move || {
+                                    conversation.with_untracked(|conversation| {
+                                        conversation.as_ref()
+                                            .map(|conversation| conversation.user_message.clone())
+                                            .unwrap_or_default()
+                                    })
+                                }
+                                node_ref=user_message_input
                                 on:input=move |event| {
                                     let user_message = event_target_value(&event);
                                     update_conversation.update(|conversation| {
@@ -492,7 +509,7 @@ pub fn ConversationParametersInputGroup(
 
     view! {
         <div class="input-group mb-3" class:visually-hidden=hide_system_prompt>
-            <span class="input-group-text">"System Prompt"</span>
+            <span class="input-group-text">"System prompt"</span>
             <textarea
                 class="form-control"
                 rows="3"

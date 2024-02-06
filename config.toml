@@ -1,50 +1,69 @@
+examples = [
+    "Write a poem about AI.",
+    "Write a Hello World in Rust.",
+    "Explain algorithmic entropy.",
+    "Write some example Markdown.",
+]
+
 default_model = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
 
 [[model]]
 model_id = "NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO"
 name = "Nous Hermes 2 - Mixtral 8x7B - DPO"
 chat_template = "ChatML"
+stream = true
 
 [[model]]
 model_id = "mistralai/Mistral-7B-Instruct-v0.2"
 name = "Mistral-7B-Instruct-v0.2"
 chat_template = "Instruct"
+stream = true
 
 [[model]]
 model_id = "mistralai/Mistral-7B-v0.1"
 name = "Mistral-7B-v0.1"
+stream = true
 
 [[model]]
 model_id = "mistralai/Mixtral-8x7B-Instruct-v0.1"
 name = "Mixtral-8x7B"
 chat_template = "Instruct"
+stream = true
 
 #[[model]]
 #model_id = "codellama/CodeLlama-70b-Instruct-hf"
 #chat_template = "CodeLlamaInstruct"
+#stream = false
 
 [[model]]
 model_id = "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
 name = "TinyLlama-1.1B"
 chat_template = "ChatML"
+stream = false
 
 [[model]]
 model_id = "HuggingFaceH4/zephyr-7b-beta"
 name = "Zephyr 7B β"
 chat_template = "ChatML"
+stream = true
 
 [[model]]
 model_id = "openai-community/gpt2"
 name = "GPT-2"
+stream = false
 
-[[model]]
-model_id = "bigcode/starcoder"
-name = "StarCoder"
+# note: does work (with streaming) but returns prompt
+#[[model]]
+#model_id = "bigcode/starcoder"
+#name = "StarCoder"
+#stream = false
 
 [[model]]
 model_id = "codellama/CodeLlama-7b-hf"
 name = "Code Llama"
+stream = true
 
-[[model]]
-model_id = "cognitivecomputations/TinyDolphin-2.8.1-1.1b"
-name = "TinyDolphin-2.8.1-1.1b"
+#[[model]]
+#model_id = "cognitivecomputations/TinyDolphin-2.8.1-1.1b"
+#name = "TinyDolphin-2.8.1-1.1b"
+#stream = false

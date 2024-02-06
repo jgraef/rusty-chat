@@ -1,13 +1,11 @@
 mod app;
+mod config;
 mod state;
 mod utils;
 
 use wasm_bindgen::JsCast;
 
 use crate::app::App;
-
-pub const GITHUB_PAGE: &'static str = "https://github.com/jgraef/rusty-chat/";
-pub const GITHUB_ISSUES_PAGE: &'static str = "https://github.com/jgraef/rusty-chat/issues";
 
 fn main() {
     wasm_logger::init(wasm_logger::Config::new(log::Level::Trace));
