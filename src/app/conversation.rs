@@ -13,6 +13,7 @@ use leptos::{
         Div,
         Input,
     },
+    store_value,
     update,
     view,
     with,
@@ -68,6 +69,7 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
         is_loading,
         settings,
         update_conversations,
+        scroll_trigger,
         ..
     } = expect_context();
 
@@ -100,14 +102,19 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
 
             // create effect to auto-scroll
             let scroll_target = create_node_ref::<Div>();
-            //let is_initial_scroll = create_rw_signal(true);
+            let is_initial_scroll = store_value(true);
 
-            /*create_effect(move |_| {
-                conversation.with(|_| ());
-                let initial = is_initial_scroll.get_untracked();
+            create_effect(move |_| {
+                scroll_trigger.track();
+
+                let initial = is_initial_scroll.try_update_value(|value| {
+                    let current = *value;
+                    *value = false;
+                    current
+                }).unwrap_or_default();
+
                 scroll_to(scroll_target, !initial);
-                is_initial_scroll.set(false);
-            });*/
+            });
 
             let user_message_input = create_node_ref::<Input>();
 
@@ -358,8 +365,10 @@ pub fn Conversation(#[prop(into)] id: MaybeSignal<ConversationId>) -> impl IntoV
                             }
                         }
                     />
-                    <div class="d-flex w-100 h-0" node_ref=scroll_target></div>
-                    <div class="d-flex w-100" style="min-height: 10em;"></div>
+                    // some padding at the bottom
+                    <div style="min-height: 5em;"></div>
+                    // we scroll this div into view whenever messages are added or updates
+                    <div class="h-0" node_ref=scroll_target></div>
                 </div>
 
                 // message form
@@ -452,13 +461,6 @@ fn Message(#[prop(into)] id: MaybeSignal<MessageId>) -> impl IntoView {
         }}
     }
 }
-
-/*
-        on_input=move |update| update_conversation(move |conversation| {
-            let Some(conversation) = conversation.as_mut() else { return; };
-            update(&mut conversation.conversation_parameters);
-        })
-*/
 
 #[component]
 pub fn ConversationParametersInputGroup(

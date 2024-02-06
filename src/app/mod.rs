@@ -20,6 +20,7 @@ use leptos::{
     component,
     create_memo,
     create_rw_signal,
+    create_trigger,
     spawn_local,
     view,
     with,
@@ -36,6 +37,7 @@ use leptos::{
     SignalUpdate,
     SignalWith,
     SignalWithUntracked,
+    Trigger,
     WriteSignal,
 };
 use leptos_meta::{
@@ -133,6 +135,7 @@ pub struct Context {
     pub update_home: WriteSignal<Home>,
     pub conversations: Signal<Conversations>,
     pub update_conversations: WriteSignal<Conversations>,
+    pub scroll_trigger: Trigger,
 }
 
 fn provide_context() {
@@ -178,6 +181,8 @@ fn provide_context() {
         ..
     } = use_storage(StorageKey::Conversations);
 
+    let scroll_trigger = create_trigger();
+
     leptos::provide_context(Context {
         is_loading: create_rw_signal(false),
         errors: Errors::default(),
@@ -187,6 +192,7 @@ fn provide_context() {
         update_home,
         conversations,
         update_conversations,
+        scroll_trigger,
     });
 }
 
@@ -199,6 +205,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
         is_loading,
         errors,
         settings,
+        scroll_trigger,
         ..
     } = expect_context();
 
@@ -218,13 +225,13 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
         timestamp: now,
     }));
 
+    let StorageSignals {
+        write: update_conversation,
+        ..
+    } = use_conversation(conversation_id);
+
     // add message to conversation and get model_id and prompt
     let result = {
-        let StorageSignals {
-            write: update_conversation,
-            ..
-        } = use_conversation(conversation_id);
-
         update_conversation
             .try_update(move |conversation| {
                 let conversation = conversation
@@ -275,6 +282,8 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
             .unwrap()
     };
 
+    scroll_trigger.notify();
+
     let (model_id, prompt, conversation_parameters) = match result {
         Ok(x) => x,
         Err(e) => {
@@ -311,11 +320,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                 timestamp: now,
             }));
 
-            let StorageSignals {
-                write: set_conversation,
-                ..
-            } = use_conversation(conversation_id);
-            set_conversation.update(|conversation| {
+            update_conversation.update(|conversation| {
                 if let Some(conversation) = conversation {
                     conversation.messages.push(message_id);
                     conversation.timestamp_last_interaction = now;
@@ -332,13 +337,8 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
 
                 set_message.update(move |message| {
                     let message = message.as_mut().unwrap();
-
-                    /*let mut text: &str = &token.text;
-                    if message.text.is_empty() {
-                        text = text.trim_start();
-                    }*/
-
                     message.text.push_str(&token.text);
+                    scroll_trigger.notify();
                 });
             }
             Ok(())
