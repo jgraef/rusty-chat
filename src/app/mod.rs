@@ -2,10 +2,7 @@ pub mod conversation;
 pub mod home;
 pub mod settings;
 
-use std::{
-    cmp::Ordering,
-    fmt::Display,
-};
+use std::cmp::Ordering;
 
 use chrono::{
     DateTime,
@@ -25,6 +22,7 @@ use leptos::{
     view,
     with,
     Children,
+    CollectView,
     DynAttrs,
     For,
     IntoView,
@@ -103,6 +101,7 @@ pub enum Error {
 pub struct ErrorMessage {
     id: Uuid,
     message: String,
+    trace: Vec<String>,
 }
 
 #[derive(Copy, Clone)]
@@ -115,11 +114,27 @@ impl Default for Errors {
 }
 
 impl Errors {
-    pub fn push(&self, message: impl Display) {
-        log::error!("{message}");
+    pub fn push(&self, error: impl std::error::Error) {
+        let message = error.to_string();
+
+        log::error!("reporting error: {message}");
+
+        let trace = {
+            let mut trace = vec![];
+            let mut error: &dyn std::error::Error = &error;
+
+            while let Some(source) = error.source() {
+                trace.push(source.to_string());
+                error = source;
+            }
+
+            trace
+        };
+
         let error = ErrorMessage {
             id: Uuid::new_v4(),
-            message: message.to_string(),
+            message,
+            trace,
         };
         self.0.update(|errors| errors.push(error))
     }
@@ -255,8 +270,9 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                     })
                     .collect::<Vec<_>>();
 
-                let chat_template = settings.with_untracked(|settings| {
-                    settings.models.get(&model_id).unwrap().chat_template
+                let (chat_template, stream) = settings.with_untracked(|settings| {
+                    let model = settings.models.get(&model_id).unwrap();
+                    (model.chat_template, model.stream)
                 });
 
                 let prompt = chat_template.generate_prompt(
@@ -277,6 +293,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                     model_id,
                     prompt,
                     conversation.conversation_parameters.clone(),
+                    stream,
                 ))
             })
             .unwrap()
@@ -284,7 +301,7 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
 
     scroll_trigger.notify();
 
-    let (model_id, prompt, conversation_parameters) = match result {
+    let (model_id, prompt, conversation_parameters, stream) = match result {
         Ok(x) => x,
         Err(e) => {
             errors.push(e);
@@ -293,7 +310,12 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
     };
 
     let mut model = api.text_generation(&model_id.0);
-    model.max_new_tokens = Some(conversation_parameters.token_limit.unwrap_or(2000));
+    let default_token_limit = stream.then_some(2000).unwrap_or(250);
+    model.max_new_tokens = Some(
+        conversation_parameters
+            .token_limit
+            .unwrap_or(default_token_limit),
+    );
     model.temparature = conversation_parameters.temperature.unwrap_or(1.0);
     model.top_k = conversation_parameters.top_k;
     model.top_p = conversation_parameters.top_p;
@@ -302,8 +324,6 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
     spawn_local(
         async move {
             is_loading.set(true);
-
-            let mut stream = model.generate_stream(&prompt).await?;
 
             let message_id = MessageId::new();
             let now = Local::now();
@@ -320,6 +340,8 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                 timestamp: now,
             }));
 
+            scroll_trigger.notify();
+
             update_conversation.update(|conversation| {
                 if let Some(conversation) = conversation {
                     conversation.messages.push(message_id);
@@ -330,17 +352,31 @@ pub fn push_user_message(conversation_id: ConversationId, user_message: String) 
                 }
             });
 
-            while let Some(token) = stream.try_next().await? {
-                if token.special {
-                    continue;
+            if stream {
+                let mut stream = model.generate_stream(&prompt).await?;
+
+                while let Some(token) = stream.try_next().await? {
+                    if token.special {
+                        continue;
+                    }
+
+                    set_message.update(move |message| {
+                        let message = message.as_mut().unwrap();
+                        message.text.push_str(&token.text);
+                        scroll_trigger.notify();
+                    });
                 }
+            }
+            else {
+                let response = model.generate(&prompt).await?;
 
                 set_message.update(move |message| {
                     let message = message.as_mut().unwrap();
-                    message.text.push_str(&token.text);
+                    message.text = response;
                     scroll_trigger.notify();
                 });
             }
+
             Ok(())
         }
         .map(move |result: Result<(), Error>| {
@@ -564,7 +600,7 @@ pub fn App() -> impl IntoView {
                     </ul>
                 </nav>
                 <main class="main d-flex flex-column w-100 h-100 mw-100 mh-100 position-relative">
-
+                    // error message
                     <div class="z-1 position-absolute top-0 start-50 translate-middle-x w-50">
                         <div
                             class="alert alert-danger alert-dismissible fade show mt-4"
@@ -577,10 +613,18 @@ pub fn App() -> impl IntoView {
                                 key=|error| error.id
                                 children=|error| view!{
                                     <hr />
-                                    <p>
+                                    <h5>
                                         <span class="me-2"><BootstrapIcon icon="exclamation-circle" /></span>
                                         {error.message}
-                                    </p>
+                                    </h5>
+                                    <ol>
+                                        {
+                                            error.trace
+                                                .into_iter()
+                                                .map(|message| view!{ <li>{message}</li> })
+                                                .collect_view()
+                                        }
+                                    </ol>
                                 }
                             />
                             <button
@@ -591,6 +635,7 @@ pub fn App() -> impl IntoView {
                             ></button>
                         </div>
                     </div>
+
                     <Routes>
                         <Route path="/" view=Home />
                         <Route path="/conversation/:id" view=move || {

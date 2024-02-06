@@ -891,7 +891,11 @@ fn DebugTab() -> impl IntoView {
 
                     let message = emit_error_input.get_untracked().unwrap().value();
                     if !message.is_empty() {
-                        errors.push(message);
+                        #[derive(Debug, thiserror::Error)]
+                        #[error("{0}")]
+                        struct TestError(String);
+
+                        errors.push(TestError(message));
                     }
                 }
             >
